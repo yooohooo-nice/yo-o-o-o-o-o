@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { AccessGate } from "@/components/AccessGate";
+import { InstallHint } from "@/components/InstallHint";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { ApiRequestError, apiFetch } from "@/lib/api";
 import type {
@@ -226,6 +227,7 @@ export default function Home() {
       </header>
 
       <main>
+        <InstallHint />
         <section className="hero-grid" aria-labelledby="hero-title">
           <div className="hero-copy">
             <p className="utility-label">PRIVATE STREAM · ANY SCREEN</p>

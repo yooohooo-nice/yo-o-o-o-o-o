@@ -36,6 +36,7 @@ type FetchOptions = {
   method?: string;
   headers?: MediaHeaders;
   timeoutMs?: number;
+  stream?: boolean;
 };
 
 function tokenSecret(): string {
@@ -154,6 +155,51 @@ export async function assertPublicUrl(value: string | URL): Promise<URL> {
   return url;
 }
 
+// Optional browser-impersonating fetch service (fetcher/). Cloudflare blocks
+// Node's own fetch by its TLS fingerprint; the service uses curl_cffi and, if
+// configured, FlareSolverr. Targets are still validated here first.
+const FETCHER_URL = process.env.FETCHER_URL?.trim() || "";
+
+const FETCHER_ERRORS: Record<string, RouteError> = {
+  PRIVATE_URL: new RouteError(403, "媒体地址不可访问。", "PRIVATE_MEDIA_URL"),
+  DNS_FAILED: new RouteError(502, "无法解析媒体服务器地址。", "DNS_FAILED"),
+};
+
+async function upstreamFetch(
+  url: URL,
+  method: string,
+  headers: MediaHeaders | undefined,
+  signal: AbortSignal,
+): Promise<Response> {
+  if (!FETCHER_URL) {
+    return fetch(url, { method, headers, redirect: "manual", signal });
+  }
+  const response = await fetch(FETCHER_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: url.href, method, headers: headers || {} }),
+    redirect: "manual",
+    signal,
+  });
+  const fetcherError = response.headers.get("x-fetcher-error");
+  if (fetcherError) {
+    await response.body?.cancel();
+    throw (
+      FETCHER_ERRORS[fetcherError] ||
+      new RouteError(502, "无法连接源站或媒体服务器。", "UPSTREAM_UNREACHABLE")
+    );
+  }
+  // The fetcher answers HEAD as a bodiless POST reply, so it carries the
+  // upstream length in a side header.
+  const upstreamLength = response.headers.get("x-upstream-content-length");
+  if (method === "HEAD" && upstreamLength) {
+    const copy = new Headers(response.headers);
+    copy.set("content-length", upstreamLength);
+    return new Response(null, { status: response.status, headers: copy });
+  }
+  return response;
+}
+
 async function fetchPublic(
   initialUrl: string,
   options: FetchOptions = {},
@@ -161,22 +207,32 @@ async function fetchPublic(
   let current = new URL(initialUrl);
   for (let redirect = 0; redirect < 5; redirect += 1) {
     current = await assertPublicUrl(current);
+    // The timeout covers the whole read for pages and playlists, but only the
+    // wait for response headers when streaming media: a long MP4 can take far
+    // longer than any fixed timeout to play through.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), options.timeoutMs || 20_000);
+    timer.unref?.();
     let response: Response;
     try {
-      response = await fetch(current, {
-        method: options.method || "GET",
-        headers: options.headers,
-        redirect: "manual",
-        signal: AbortSignal.timeout(options.timeoutMs || 20_000),
-      });
-    } catch {
+      response = await upstreamFetch(
+        current,
+        options.method || "GET",
+        options.headers,
+        controller.signal,
+      );
+    } catch (error) {
+      clearTimeout(timer);
+      if (error instanceof RouteError) throw error;
       throw new RouteError(502, "无法连接源站或媒体服务器。", "UPSTREAM_UNREACHABLE");
     }
+    if (options.stream) clearTimeout(timer);
 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
       if (!location) return { response, finalUrl: current };
       await response.body?.cancel();
+      clearTimeout(timer);
       current = new URL(location, current);
       continue;
     }
@@ -347,7 +403,8 @@ async function resolveSitePage(
       const host = canonicalHost(candidate.hostname);
       const { response } = await fetchPublic(candidate.href, {
         headers: pageHeaders(host),
-        timeoutMs: 10_000,
+        // FlareSolverr may need up to a minute to pass a challenge.
+        timeoutMs: FETCHER_URL ? 90_000 : 10_000,
       });
       if (response.status !== 200) {
         await response.body?.cancel();
@@ -557,6 +614,7 @@ export async function proxyMedia(
     method,
     headers,
     timeoutMs: 30_000,
+    stream: true,
   });
 
   if (method === "HEAD") {

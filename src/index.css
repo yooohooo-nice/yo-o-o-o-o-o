@@ -860,6 +860,32 @@
 .service-error h1 { margin: 0; font-size: 28px; }
 .service-error p { max-width: 52ch; margin: 0 0 8px; color: var(--text-secondary); }
 
+.install-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 0;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 10px 6px 10px 14px;
+  background: var(--surface-control);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.install-hint > svg { flex: 0 0 auto; color: var(--text-primary); }
+.install-hint p { flex: 1; margin: 0; }
+.install-hint-share { display: inline; margin: 0 3px; vertical-align: -2px; color: var(--text-primary); }
+.install-hint-action { min-height: 36px; padding: 0 14px; font-size: 13px; }
+
+/* Installed app on notched phones: keep content clear of the home indicator
+   and the landscape notch (viewport-fit=cover lets the page reach the edges). */
+.site-footer { padding-bottom: calc(46px + env(safe-area-inset-bottom)); }
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
 @media (max-width: 1024px) {
   .hero-grid {
     min-height: auto;

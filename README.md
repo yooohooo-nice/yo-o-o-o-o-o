@@ -20,6 +20,7 @@
 - Jable／MissAV 适配为实验性功能，可能受到反爬、页面结构变化、地区限制和服务器网络影响。
 - 当前开发网络未能完成 Jable／MissAV 在线实测；公开 Mux 测试流的解析、列表重写和分片代理已通过自动化测试。
 - 不包含原 Windows 项目的本地下载、AI 字幕、OCR、Whisper 或离线翻译功能。
+- 可以添加到手机主屏幕，像 App 一样全屏打开（PWA）。
 - 媒体地址防护包括协议、端口、公网 IP 和重定向检查，但不应被视为能够消除所有 DNS 或上游风险的绝对保证。
 
 ## 部署（个人自用）
@@ -36,10 +37,10 @@ cp .env.example .env
 
 1. 把域名（如 `play.example.com`）的 A 记录解析到服务器 IP，并在 `.env` 里设置 `DOMAIN=play.example.com`。
 2. 服务器防火墙 / 安全组放行 80、443 端口。
-3. 启动：
+3. 确认 `.env` 里 `COMPOSE_PROFILES` 包含 `caddy`，然后启动：
 
 ```bash
-docker compose --profile caddy up -d --build
+docker compose up -d --build
 ```
 
 浏览器打开 `https://你的域名` 即可。
@@ -48,7 +49,7 @@ docker compose --profile caddy up -d --build
 
 1. 在这台机器和手机上都安装 [Tailscale](https://tailscale.com/download) 并登录同一账号。
 2. 在 Tailscale 管理后台的 DNS 页面开启 MagicDNS 和 HTTPS Certificates。
-3. 启动并开启 HTTPS 转发：
+3. 把 `.env` 里的 `COMPOSE_PROFILES` 改成不含 `caddy`（例如只写 `flaresolverr`，或留空），然后启动并开启 HTTPS 转发：
 
 ```bash
 docker compose up -d --build
@@ -57,11 +58,25 @@ sudo tailscale serve --bg 3000
 
 `tailscale serve status` 会显示访问地址（形如 `https://机器名.xxx.ts.net`），只有你自己 Tailscale 网络里的设备能打开。
 
+### 绕过 Cloudflare
+
+Jable、MissAV 都在 Cloudflare 后面，Node 自带的请求很容易被识别并拦截。所以所有对源站的请求都经过 `fetcher/` 服务：
+
+1. **curl_cffi 浏览器伪装**（默认开启）：用 Chrome 的 TLS / HTTP2 指纹发请求，和原版 FetchJAV 的做法一样，大多数情况下就够了。
+2. **FlareSolverr**（可选，`COMPOSE_PROFILES` 里加上 `flaresolverr`）：如果仍然遇到“Just a moment”验证页，就用无头 Chrome 真正打开一次页面，通过验证后把 `cf_clearance` Cookie 保存 2 小时，之后的请求直接复用。需要多约 500MB 内存。
+
+查看是否触发了验证：`docker compose logs fetcher | grep challenge`。如果出现 `flaresolverr solved challenge` 说明已自动通过。
+
+### 添加到手机主屏幕（PWA）
+
+- **iPhone / iPad**：用 Safari 打开网址 → 点底部分享按钮 → “添加到主屏幕”。注意：主屏幕上的 App 和 Safari 的登录状态是分开的，第一次打开需要再输入一次密码。
+- **安卓**：用 Chrome 打开，页面顶部会出现“安装”按钮；或者在 Chrome 菜单里选“添加到主屏幕 / 安装应用”。
+
 ### 常用命令
 
 ```bash
 docker compose logs -f app       # 查看日志
-git pull && docker compose up -d --build   # 更新版本（方案 A 加上 --profile caddy）
+git pull && docker compose up -d --build   # 更新版本
 docker compose down              # 停止（数据保留）
 ```
 
@@ -90,6 +105,7 @@ npm run dev
 ```bash
 npm run check       # TypeScript 类型检查
 npm run test        # 访问控制与真实公开测试流集成测试
+(cd fetcher && pip install -r requirements.txt && python -m unittest test_app)  # 抓取服务测试
 npm run build       # 构建前端和自包含服务端 bundle
 npm start           # 生产模式启动
 ```

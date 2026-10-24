@@ -61,7 +61,9 @@ describe("password access and media route integration", () => {
   });
 
   it("locks repeated password failures without affecting the correct-session IP", async () => {
-    const lockIp = "198.51.100.99";
+    // Random per run: a lock left in the database by an earlier run would
+    // otherwise fail this test for the next 15 minutes.
+    const lockIp = `198.51.100.${Math.floor(Math.random() * 200) + 30}`;
     const attempt = (password: string) => app.request("/api/access/login", {
       method: "POST",
       headers: {

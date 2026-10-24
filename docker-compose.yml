@@ -1,7 +1,10 @@
-# 用法：
-#   公网服务器 + 域名（自动 HTTPS）：docker compose --profile caddy up -d --build
-#   家里电脑 / Tailscale：          docker compose up -d --build
-#                                   然后 tailscale serve --bg 3000
+# 用法：在 .env 里用 COMPOSE_PROFILES 选择要启用的可选服务，然后
+#   docker compose up -d --build
+# 可选服务：
+#   caddy         公网服务器 + 域名，自动 HTTPS
+#   flaresolverr  用无头 Chrome 自动通过 Cloudflare 验证（多占约 500MB 内存）
+# 例：COMPOSE_PROFILES=caddy,flaresolverr
+# 家里电脑 / Tailscale 不需要 caddy，启动后执行：tailscale serve --bg 3000
 services:
   app:
     build: .
@@ -11,12 +14,33 @@ services:
       DATABASE_URL: mysql://liuguang:${DB_PASSWORD:?请在 .env 里设置 DB_PASSWORD}@db:3306/liuguang
       # 前面始终有 Caddy 或 Tailscale serve 做反向代理，它们会覆盖客户端伪造的 X-Forwarded-For。
       TRUST_PROXY: "1"
+      # 所有对源站的请求都经过 fetcher，用伪装成 Chrome 的方式访问以绕过 Cloudflare。
+      FETCHER_URL: http://fetcher:8080/fetch
     # 只监听本机，外部无法直接访问 3000 端口，必须经过 Caddy / Tailscale。
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
       db:
         condition: service_healthy
+      fetcher:
+        condition: service_started
+
+  # 浏览器伪装抓取服务（curl_cffi），只在内部网络可见，不对外开放端口。
+  fetcher:
+    build: ./fetcher
+    restart: unless-stopped
+    environment:
+      # flaresolverr 没启用时连接会失败，fetcher 会自动跳过这一步。
+      FLARESOLVERR_URL: http://flaresolverr:8191/v1
+
+  flaresolverr:
+    # 用最新版：Cloudflare 的检测经常更新，旧版 Chrome 更容易被拦。
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    profiles: ["flaresolverr"]
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: info
+      TZ: Asia/Shanghai
 
   db:
     image: mariadb:11.4

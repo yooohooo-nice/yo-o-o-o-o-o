@@ -38,6 +38,18 @@
 - 许可证：MIT。
 - 许可证副本：`licenses/ipaddrjs-LICENSE.txt`。
 
+## curl_cffi
+
+- 项目：https://github.com/lexiforest/curl_cffi
+- 用途：`fetcher/` 服务以 Chrome 的 TLS／HTTP2 指纹请求源站。
+- 许可证：MIT。
+
+## FlareSolverr（可选，独立 Docker 镜像）
+
+- 项目：https://github.com/FlareSolverr/FlareSolverr
+- 用途：遇到 Cloudflare 验证页时，用无头 Chrome 通过验证。未修改、未打包进本项目，按需从官方镜像拉取。
+- 许可证：MIT。
+
 ## Mux 公开测试流
 
 - 主测试流：https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
