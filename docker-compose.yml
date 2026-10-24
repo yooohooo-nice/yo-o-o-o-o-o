@@ -1,0 +1,62 @@
+# 用法：
+#   公网服务器 + 域名（自动 HTTPS）：docker compose --profile caddy up -d --build
+#   家里电脑 / Tailscale：          docker compose up -d --build
+#                                   然后 tailscale serve --bg 3000
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: mysql://liuguang:${DB_PASSWORD:?请在 .env 里设置 DB_PASSWORD}@db:3306/liuguang
+      # 前面始终有 Caddy 或 Tailscale serve 做反向代理，它们会覆盖客户端伪造的 X-Forwarded-For。
+      TRUST_PROXY: "1"
+    # 只监听本机，外部无法直接访问 3000 端口，必须经过 Caddy / Tailscale。
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: liuguang
+      MARIADB_USER: liuguang
+      MARIADB_PASSWORD: ${DB_PASSWORD:?请在 .env 里设置 DB_PASSWORD}
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    # 小内存服务器上压低 MariaDB 占用；只存两张很小的表，足够用。
+    command:
+      - --innodb-buffer-pool-size=32M
+      - --performance-schema=OFF
+      - --max-connections=30
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  caddy:
+    image: caddy:2.8
+    profiles: ["caddy"]
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:

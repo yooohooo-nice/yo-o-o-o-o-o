@@ -1,0 +1,9 @@
+# DOMAIN 在 .env 里设置，例如 DOMAIN=play.example.com（域名需先解析到服务器 IP）。
+# Caddy 会自动申请并续期 HTTPS 证书，并用真实客户端 IP 覆盖 X-Forwarded-For。
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000 {
+		# 视频分片需要边下边传，不要缓冲
+		flush_interval -1
+	}
+}
