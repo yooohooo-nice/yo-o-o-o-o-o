@@ -70,6 +70,31 @@ export type LibraryResponse = {
   favorites: LibraryItem[];
 };
 
+/** The "My PikPak" drive (an account configured on the server). */
+export type PikPakStatus = {
+  configured: boolean;
+  ready: boolean;
+  error?: string;
+};
+
+export type PikPakEntry = {
+  name: string;
+  /** Path inside the drive, e.g. "/流光离线下载/movie.mp4". */
+  path: string;
+  size: number;
+  isDir: boolean;
+  modified: number | null;
+};
+
+export type PikPakTask = {
+  id: string;
+  name: string;
+  progress: number;
+  finished: boolean;
+  error: string | null;
+  startedAt: number | null;
+};
+
 export type AccessStatus = {
   authenticated: boolean;
 };

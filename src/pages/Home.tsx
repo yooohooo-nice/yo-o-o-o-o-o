@@ -10,10 +10,12 @@ import {
   Play,
   ShieldCheck,
   Star,
+  CloudDownload,
 } from "lucide-react";
 import { AccessGate } from "@/components/AccessGate";
 import { InstallHint } from "@/components/InstallHint";
 import { LibraryPanel } from "@/components/LibraryPanel";
+import { PikPakPanel } from "@/components/PikPakPanel";
 import { TorrentPicker } from "@/components/TorrentPicker";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { ApiRequestError, apiFetch } from "@/lib/api";
@@ -29,8 +31,11 @@ import type {
 const DEMO_STREAM =
   "https://test-streams.mux.dev/x36xhzz/url_2/193039199_mp4_h264_aac_ld_7.m3u8";
 const EMPTY_LIBRARY: LibraryResponse = { recent: [], favorites: [] };
+const SHARE_HINT =
+  "PikPak 分享没有转存时，通常只能播放预览。完整播放：在 PikPak App 里把分享保存到网盘，再从顶部「我的 PikPak」打开。";
 
 type AuthState = "loading" | "gate" | "ready" | "error";
+type View = "home" | "pikpak";
 
 /**
  * A link handed over by the share sheet (Android share target) or an iOS
@@ -88,6 +93,8 @@ export default function Home() {
   const [searchStatus, setSearchStatus] = useState("");
   const [library, setLibrary] = useState<LibraryResponse>(EMPTY_LIBRARY);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [view, setView] = useState<View>("home");
+  const [pendingOffline, setPendingOffline] = useState<string | null>(null);
   const requestRef = useRef(0);
   const playerRef = useRef<HTMLElement>(null);
   const sharedLinkRef = useRef(sharedLinkFromLocation());
@@ -238,6 +245,23 @@ export default function Home() {
     }
   }
 
+  function playFromDrive(path: string) {
+    const source = `pikpak:${path}`;
+    setView("home");
+    setUrl(source);
+    void resolveUrl(source);
+  }
+
+  function sendToPikPak() {
+    // Stop polling the server-side BitTorrent search and let PikPak's cloud
+    // download it instead.
+    requestRef.current += 1;
+    setResolving(false);
+    setPendingOffline(url.trim());
+    setView("pikpak");
+    window.scrollTo({ top: 0 });
+  }
+
   function playItem(item: LibraryItem) {
     setUrl(item.url);
     void resolveUrl(item.url, item.fileIndex ?? undefined);
@@ -277,6 +301,22 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true">流</span>
           <span>流光播放器</span>
         </div>
+        <nav className="view-tabs" aria-label="页面">
+          <button
+            type="button"
+            className={view === "home" ? "is-active" : ""}
+            onClick={() => setView("home")}
+          >
+            播放
+          </button>
+          <button
+            type="button"
+            className={view === "pikpak" ? "is-active" : ""}
+            onClick={() => setView("pikpak")}
+          >
+            我的 PikPak
+          </button>
+        </nav>
         <div className="header-actions">
           <span className="header-status"><i />密码访问 · 18+</span>
           <button
@@ -294,6 +334,22 @@ export default function Home() {
 
       <main>
         <InstallHint />
+        {view === "pikpak" ? (
+          <section className="player-section pikpak-section" aria-labelledby="pikpak-heading">
+            <div className="section-heading">
+              <div>
+                <p className="utility-label">MY PIKPAK</p>
+                <h2 id="pikpak-heading">我的 PikPak</h2>
+              </div>
+            </div>
+            <PikPakPanel
+              onPlay={playFromDrive}
+              pendingOffline={pendingOffline}
+              onOfflineConsumed={() => setPendingOffline(null)}
+            />
+          </section>
+        ) : (
+        <>
         <section className="hero-grid" aria-labelledby="hero-title">
           <div className="hero-copy">
             <p className="utility-label">PRIVATE STREAM · ANY SCREEN</p>
@@ -394,11 +450,14 @@ export default function Home() {
           {result ? (
             <VideoPlayer result={result} />
           ) : choice ? (
-            <TorrentPicker
-              choice={choice}
-              onPick={(fileIndex) => void resolveUrl(choice.sourceUrl, fileIndex)}
-              onCancel={() => setChoice(null)}
-            />
+            <>
+              <TorrentPicker
+                choice={choice}
+                onPick={(fileIndex) => void resolveUrl(choice.sourceUrl, fileIndex)}
+                onCancel={() => setChoice(null)}
+              />
+              {choice.source === "pikpak" && <p className="converting-note">{SHARE_HINT}</p>}
+            </>
           ) : (
             <div className="empty-player" aria-live="polite">
               {resolving ? (
@@ -406,6 +465,11 @@ export default function Home() {
                   <div className="resolve-bars" aria-hidden="true"><i /><i /><i /><i /></div>
                   <p>{searchStatus || "正在解析"}</p>
                   <span>磁力链接需要先找到下载源，冷门资源可能要等一两分钟</span>
+                  {/^magnet:/i.test(url.trim()) && (
+                    <button className="secondary-button" type="button" onClick={sendToPikPak}>
+                      <CloudDownload size={17} />改用 PikPak 离线下载
+                    </button>
+                  )}
                 </>
               ) : (
                 <>
@@ -417,9 +481,19 @@ export default function Home() {
             </div>
           )}
 
+          {result?.site === "pikpak" && !result.sourceUrl.startsWith("pikpak:") && (
+            <p className="converting-note">{SHARE_HINT}</p>
+          )}
+
           {result && (
             <div className="playback-meta">
-              <span>{result.site === "torrent" ? "BT 边下边播" : hostOf(result.sourceUrl)}</span>
+              <span>
+                {result.site === "torrent"
+                  ? "BT 边下边播"
+                  : result.sourceUrl.startsWith("pikpak:")
+                    ? "我的 PikPak"
+                    : hostOf(result.sourceUrl)}
+              </span>
               <span><Clock3 size={14} />播放地址有效至 {formatClock(result.expiresAt)}</span>
             </div>
           )}
@@ -432,6 +506,8 @@ export default function Home() {
           onRemove={(item) => void removeItem(item)}
           onClearHistory={() => void clearHistory()}
         />
+        </>
+        )}
       </main>
 
       <footer className="site-footer">

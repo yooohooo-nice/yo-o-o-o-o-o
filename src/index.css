@@ -885,6 +885,75 @@
 }
 .art-host .art-notice { font-size: 15px; }
 
+/* Header page switch and "My PikPak" */
+.view-tabs { display: flex; gap: 4px; margin-left: auto; margin-right: 12px; }
+.view-tabs button {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.view-tabs button.is-active { border-color: var(--border-strong); color: var(--text-primary); background: var(--surface-control); }
+
+.pikpak-section { padding-top: 40px; }
+.pikpak-panel { display: flex; flex-direction: column; gap: 14px; }
+.pikpak-offline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 6px 6px 6px 14px;
+  background: var(--surface-control);
+}
+.pikpak-offline input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 15px;
+  outline: none;
+}
+.pikpak-offline .secondary-button { min-height: 40px; padding: 0 14px; font-size: 14px; }
+.pikpak-notice { margin: 0; color: var(--paper-200); font-size: 13px; }
+.pikpak-tasks { display: flex; flex-direction: column; border-top: 1px solid var(--border-default); }
+.pikpak-task {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-default);
+  padding: 10px 2px;
+  font-size: 13px;
+}
+.pikpak-task-name { min-width: 0; overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.pikpak-task-state { flex: 0 0 auto; color: var(--paper-200); }
+.pikpak-task-state.is-error { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pikpak-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pikpak-crumbs { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--text-secondary); font-size: 14px; }
+.pikpak-crumbs span { display: inline-flex; align-items: center; gap: 4px; }
+.torrent-file.is-muted { opacity: 0.45; }
+.pikpak-setup {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-media);
+  padding: 20px;
+  background: var(--ink-950);
+}
+.pikpak-setup h3 { margin: 0 0 6px; font-size: 16px; }
+.pikpak-setup p { margin: 0; color: var(--text-secondary); font-size: 14px; overflow-wrap: anywhere; }
+.empty-player .secondary-button { margin-top: 6px; }
+@media (max-width: 640px) {
+  .view-tabs { margin-right: 4px; }
+  .view-tabs button { padding: 6px 10px; font-size: 13px; }
+}
+
 .local-note {
   margin: 14px 0 0;
   color: var(--text-secondary);

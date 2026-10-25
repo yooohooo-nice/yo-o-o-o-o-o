@@ -11,6 +11,7 @@ import type {
 } from "@contracts/types";
 import { appInternalUrl, internalSecret, workerJson } from "./mediaWorker";
 import { parsePikPakShare, resolvePikPakShare } from "./pikpak";
+import { DRIVE_PREFIX, resolveDriveFile } from "./pikpakDrive";
 import { env } from "./lib/env";
 import { RouteError } from "./routeUtils";
 
@@ -747,6 +748,7 @@ export async function resolveMedia(
 ): Promise<ResolvedStream | TorrentChoice | TorrentPending> {
   const trimmed = rawUrl.trim();
   if (/^magnet:\?/i.test(trimmed)) return resolveMagnet(trimmed, fileIndex);
+  if (trimmed.startsWith(DRIVE_PREFIX)) return resolveDriveFile(trimmed);
 
   let input: URL;
   try {

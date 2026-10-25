@@ -11,6 +11,7 @@ import { REQUEST_ID_HEADER, runWithRequestId } from "./lib/requestcontext";
 import { accessRoutes } from "./routes/access";
 import { mediaRoutes } from "./routes/media";
 import { libraryRoutes } from "./routes/library";
+import { pikpakRoutes } from "./routes/pikpak";
 import { internalRoutes } from "./routes/internal";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
@@ -81,6 +82,7 @@ app.post(
 app.route("/api/access", accessRoutes);
 app.route("/api/media", mediaRoutes);
 app.route("/api/library", libraryRoutes);
+app.route("/api/pikpak", pikpakRoutes);
 app.route("/internal", internalRoutes);
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
