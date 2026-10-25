@@ -14,6 +14,7 @@ function sourceLabel(item: LibraryItem): string {
   if (item.site === "jable") return "Jable";
   if (item.site === "missav") return "MissAV";
   if (item.site === "torrent") return "BT";
+  if (item.site === "pikpak") return "PikPak";
   try {
     return new URL(item.url).hostname.replace(/^www\./, "");
   } catch {

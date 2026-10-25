@@ -17,7 +17,9 @@ export function TorrentPicker({ choice, onPick, onCancel }: TorrentPickerProps) 
     <div className="torrent-picker">
       <div className="torrent-picker-heading">
         <div>
-          <p className="utility-label">BT · 选择要播放的文件</p>
+          <p className="utility-label">
+            {choice.source === "pikpak" ? "PikPak" : "BT"} · 选择要播放的文件
+          </p>
           <h3>{choice.title}</h3>
         </div>
         <button className="icon-button" type="button" onClick={onCancel} aria-label="取消" title="取消">
