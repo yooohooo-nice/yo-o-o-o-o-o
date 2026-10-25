@@ -3,6 +3,9 @@ import Artplayer from "artplayer";
 import type Hls from "hls.js";
 import { AlertCircle, RotateCcw } from "lucide-react";
 import type { ResolveMediaResult } from "@contracts/types";
+import { createFramePreview, progressPreview, type FramePreview } from "./player/framePreview";
+import { jogWheel } from "./player/jogWheel";
+import { formatTime, shouldUseNativeHls } from "./player/playback";
 
 type VideoPlayerProps = {
   result: ResolveMediaResult;
@@ -16,24 +19,27 @@ const DOUBLE_TAP_SEEK = 10;
 // play/pause); ArtPlayer's own double-tap-to-play would toggle on every one.
 Artplayer.MOBILE_DBCLICK_PLAY = false;
 
-function shouldUseNativeHls(video: HTMLVideoElement): boolean {
-  if (!video.canPlayType("application/vnd.apple.mpegurl")) return false;
-  const userAgent = navigator.userAgent;
-  const appleMobile =
-    /iPad|iPhone|iPod/.test(userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const safari =
-    /safari/i.test(userAgent) &&
-    !/chrome|chromium|crios|android|edg|opr|fxios/i.test(userAgent);
-  return appleMobile || safari;
-}
+// iPhone Safari has no element fullscreen: ArtPlayer would hand the video to
+// the system player, which hides our wheel and preview. Use page fullscreen.
+const ELEMENT_FULLSCREEN =
+  typeof document !== "undefined" && Boolean(document.fullscreenEnabled);
 
-function formatTime(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = String(total % 60).padStart(2, "0");
-  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+/**
+ * Fullscreen as soon as a video is ready. Browsers only allow real
+ * fullscreen right after a tap, so when that is refused (or unavailable)
+ * the player fills the page instead.
+ */
+function enterFullscreen(art: Artplayer) {
+  // Without a recent tap the request would only be rejected.
+  const tapped = navigator.userActivation?.isActive ?? true;
+  if (!ELEMENT_FULLSCREEN || !tapped) {
+    art.fullscreenWeb = true;
+    return;
+  }
+  art.fullscreen = true;
+  window.setTimeout(() => {
+    if (!document.fullscreenElement && !art.fullscreenWeb) art.fullscreenWeb = true;
+  }, 400);
 }
 
 function saveProgress(
@@ -125,6 +131,7 @@ export function VideoPlayer({ result }: VideoPlayerProps) {
     if (!host) return;
     setError("");
     let hls: Hls | null = null;
+    let preview: FramePreview | null = null;
     const startAt = result.resumeAt ?? 0;
 
     const playM3u8 = (video: HTMLVideoElement, url: string) => {
@@ -189,21 +196,32 @@ export function VideoPlayer({ result }: VideoPlayerProps) {
       airplay: true,
       hotkey: true,
       mutex: true,
-      fullscreen: true,
+      fullscreen: ELEMENT_FULLSCREEN,
       fullscreenWeb: true,
       miniProgressBar: true,
       playsInline: true,
       lock: true,
       gesture: true,
       fastForward: true,
-      autoOrientation: true,
+      // Turning the phone rotates the page itself; a forced rotation would
+      // leave no room under the video for the jog wheel.
+      autoOrientation: false,
       // Resume comes from the server so it follows you across devices.
       autoPlayback: false,
       backdrop: true,
       moreVideoAttr: { preload: "auto" },
       customType: { m3u8: playM3u8 },
-      plugins: [doubleTapSeek],
+      plugins: [
+        doubleTapSeek,
+        (player: Artplayer) => {
+          preview = createFramePreview(player, result.streamUrl, result.kind);
+          progressPreview(preview)(player);
+          jogWheel(preview)(player);
+          return { name: "scrubbing" };
+        },
+      ],
     });
+    art.once("ready", () => enterFullscreen(art));
 
     let resumed = false;
     art.on("video:loadedmetadata", () => {
@@ -245,6 +263,7 @@ export function VideoPlayer({ result }: VideoPlayerProps) {
       document.removeEventListener("visibilitychange", onHide);
       report(true);
       hls?.destroy();
+      preview?.destroy();
       art.destroy();
     };
   }, [result, retry]);

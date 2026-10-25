@@ -884,6 +884,8 @@
   font-family: "Satoshi", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
 }
 .art-host .art-notice { font-size: 15px; }
+/* Our frame preview carries the time; ArtPlayer's own tip would repeat it. */
+.art-host .art-progress-tip { display: none !important; }
 
 /* Header page switch and "My PikPak" */
 .view-tabs { display: flex; gap: 4px; margin-left: auto; margin-right: 12px; }
@@ -1082,4 +1084,89 @@ body {
     filter: none;
     transform: none;
   }
+}
+
+/* Frame preview over the progress bar and jog wheel */
+.lg-preview {
+  position: absolute;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease, visibility 120ms;
+}
+.lg-preview.is-visible { opacity: 1; visibility: visible; }
+.lg-preview-frame {
+  width: var(--preview-width, 168px);
+  height: var(--preview-height, 94px);
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  background: #000;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+.lg-preview-frame video { width: 100%; height: 100%; object-fit: cover; }
+.lg-preview span {
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+}
+
+/* Jog wheel: only in fullscreen, where there is room for it */
+.lg-wheel {
+  --wheel-offset: 0px;
+  position: absolute;
+  z-index: 80;
+  right: 16px;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  display: none;
+  width: min(62vw, 320px);
+  height: 64px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 14px;
+  background: #1b1b1b;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.art-fullscreen .lg-wheel,
+.art-fullscreen-web .lg-wheel { display: block; }
+.lg-wheel-ridges {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0) 28%, rgba(0, 0, 0, 0) 72%, rgba(0, 0, 0, 0.85)),
+    repeating-linear-gradient(90deg, #6d6d6d 0 3px, #2a2a2a 3px 12px);
+  background-position: 0 0, var(--wheel-offset) 0;
+}
+.lg-wheel-mark {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 50%;
+  width: 3px;
+  border-radius: 2px;
+  background: #fff;
+  transform: translateX(-50%);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+}
+.lg-wheel.is-active { border-color: rgba(255, 255, 255, 0.7); }
+.art-lock .lg-wheel { opacity: 0.3; pointer-events: none; }
+/* Sideways the video fills the screen: show the wheel with the controls only. */
+@media (orientation: landscape) {
+  .lg-wheel { right: 24px; bottom: 72px; height: 54px; width: min(40vw, 300px); opacity: 0.85; }
+  .art-fullscreen:not(.art-control-show) .lg-wheel:not(.is-active),
+  .art-fullscreen-web:not(.art-control-show) .lg-wheel:not(.is-active) { display: none; }
 }
