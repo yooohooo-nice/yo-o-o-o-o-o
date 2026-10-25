@@ -3,12 +3,14 @@ import { lookup } from "node:dns/promises";
 import { load } from "cheerio";
 import ipaddr from "ipaddr.js";
 import type {
+  MediaSite,
   ResolveMediaResult,
   TorrentChoice,
   TorrentFile,
   TorrentPending,
 } from "@contracts/types";
 import { appInternalUrl, internalSecret, workerJson } from "./mediaWorker";
+import { parsePikPakShare, resolvePikPakShare } from "./pikpak";
 import { env } from "./lib/env";
 import { RouteError } from "./routeUtils";
 
@@ -446,7 +448,7 @@ async function resolveSitePage(
 }
 
 
-// ── direct links ──────────────────────────────────────────────────────────
+// ── direct links ──────────────────────────────────────────────────────────────────────────
 // Browsers play MP4/MOV/WebM files themselves; MKV, FLV, AVI, TS and friends
 // are repackaged to HLS by the media worker (video is copied, not re-encoded).
 
@@ -550,30 +552,73 @@ function streamPath(token: string): string {
   return `/api/media/stream?token=${encodeURIComponent(token)}`;
 }
 
-async function remuxRemote(input: URL): Promise<ResolvedStream> {
+type StreamOptions = {
+  title: string;
+  sourceUrl: string;
+  site: MediaSite;
+  fileIndex?: number;
+  /** Real file name when the URL itself has none (cloud-drive links). */
+  fileName?: string;
+  /** Stable identity for remux jobs when the URL carries expiring signatures. */
+  key?: string;
+  /** Already-known format, so the source is not sniffed twice. */
+  format?: DirectFormat;
+};
+
+/** Turns a public media URL into something the player can open. */
+export async function streamFromUrl(
+  input: URL,
+  options: StreamOptions,
+): Promise<ResolvedStream> {
+  await assertPublicUrl(input);
+  const format =
+    options.format ||
+    formatFromExtension(options.fileName || "") ||
+    formatFromExtension(input.pathname) ||
+    (await sniffFormat(input));
+  if (format === "torrent") {
+    throw new RouteError(400, "这里是种子文件，请直接粘贴种子或磁力链接。", "UNEXPECTED_TORRENT");
+  }
   const expiresAt = Date.now() + TOKEN_TTL_MS;
-  // The worker reads the source through this app, so the same public-address
-  // checks and Cloudflare-proof fetching apply to it.
-  const sourceToken = createMediaToken(input.href, "file", mediaHeaders(), expiresAt);
-  const job = await workerJson<{ id: string }>(
-    "/remux",
-    {
-      key: input.href,
-      input: `${appInternalUrl()}/internal/source?token=${encodeURIComponent(sourceToken)}`,
-      headers: { "x-internal-secret": internalSecret() },
-    },
-    90_000,
-  );
-  return {
-    title: directTitle(input),
-    sourceUrl: input.href,
-    site: "direct",
-    kind: "hls",
-    streamUrl: `/api/media/remux/${job.id}/index.m3u8`,
+  const base = {
+    title: options.title,
+    sourceUrl: options.sourceUrl,
+    site: options.site,
     posterUrl: null,
     expiresAt,
     experimental: false,
-    converting: true,
+    ...(options.fileIndex === undefined ? {} : { fileIndex: options.fileIndex }),
+  };
+  if (format === "remux") {
+    // The worker reads the source through this app, so the same public-address
+    // checks and Cloudflare-proof fetching apply to it.
+    const sourceToken = createMediaToken(input.href, "file", mediaHeaders(), expiresAt);
+    const job = await workerJson<{ id: string }>(
+      "/remux",
+      {
+        key: options.key || input.href,
+        input: `${appInternalUrl()}/internal/source?token=${encodeURIComponent(sourceToken)}`,
+        headers: { "x-internal-secret": internalSecret() },
+      },
+      90_000,
+    );
+    return {
+      ...base,
+      kind: "hls",
+      streamUrl: `/api/media/remux/${job.id}/index.m3u8`,
+      converting: true,
+    };
+  }
+  const token = createMediaToken(
+    input.href,
+    format === "file" ? "file" : "auto",
+    mediaHeaders(),
+    expiresAt,
+  );
+  return {
+    ...base,
+    kind: format === "file" ? "file" : "hls",
+    streamUrl: streamPath(token),
   };
 }
 
@@ -584,27 +629,15 @@ async function resolveDirect(
   await assertPublicUrl(input);
   const format = formatFromExtension(input.pathname) || (await sniffFormat(input));
   if (format === "torrent") return resolveTorrentUrl(input, fileIndex);
-  if (format === "remux") return remuxRemote(input);
-  const expiresAt = Date.now() + TOKEN_TTL_MS;
-  const token = createMediaToken(
-    input.href,
-    format === "file" ? "file" : "auto",
-    mediaHeaders(),
-    expiresAt,
-  );
-  return {
+  return streamFromUrl(input, {
     title: directTitle(input),
     sourceUrl: input.href,
     site: "direct",
-    kind: format === "file" ? "file" : "hls",
-    streamUrl: streamPath(token),
-    posterUrl: null,
-    expiresAt,
-    experimental: false,
-  };
+    format,
+  });
 }
 
-// ── BitTorrent ────────────────────────────────────────────────────────────
+// ── BitTorrent ────────────────────────────────────────────────────────────────────────
 
 type WorkerTorrent = {
   infoHash: string;
@@ -612,9 +645,9 @@ type WorkerTorrent = {
   files: (TorrentFile & { kind: "direct" | "remux" | null })[];
 };
 
-const VIDEO_NAME = /\.(mp4|m4v|mov|webm|mkv|avi|flv|ts|m2ts|mts|wmv|mpg|mpeg|rmvb|rm|3gp)$/i;
+export const VIDEO_NAME = /\.(mp4|m4v|mov|webm|mkv|avi|flv|ts|m2ts|mts|wmv|mpg|mpeg|rmvb|rm|3gp)$/i;
 
-function baseName(name: string): string {
+export function baseName(name: string): string {
   return (name.split("/").pop() || name).replace(VIDEO_NAME, "");
 }
 
@@ -724,6 +757,9 @@ export async function resolveMedia(
   if (!["http:", "https:"].includes(input.protocol) || input.username || input.password) {
     throw new RouteError(400, "请输入有效的 HTTP／HTTPS 地址或磁力链接。", "INVALID_URL");
   }
+
+  const share = parsePikPakShare(input);
+  if (share) return resolvePikPakShare(share, input.href, fileIndex);
 
   const host = canonicalHost(input.hostname);
   if (JABLE_HOSTS.includes(host as (typeof JABLE_HOSTS)[number])) {
