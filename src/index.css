@@ -1121,52 +1121,88 @@ body {
   white-space: pre;
 }
 
-/* Jog wheel: only in fullscreen, where there is room for it */
+/* Jog wheel: a thin bar at rest, a ridged glass wheel while pressed. Fullscreen only. */
 .lg-wheel {
   --wheel-offset: 0px;
   position: absolute;
   z-index: 80;
-  right: 16px;
-  bottom: calc(76px + env(safe-area-inset-bottom));
   display: none;
-  width: min(62vw, 320px);
-  height: 64px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 14px;
-  background: #1b1b1b;
-  cursor: ew-resize;
+  padding: 14px;
+  transform: translate(-50%, -50%);
+  cursor: grab;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .art-fullscreen .lg-wheel,
 .art-fullscreen-web .lg-wheel { display: block; }
+.lg-wheel-body {
+  position: relative;
+  width: 5px;
+  height: 120px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25);
+  opacity: 0.6;
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  transition:
+    width 320ms cubic-bezier(0.2, 0.9, 0.25, 1),
+    height 320ms cubic-bezier(0.2, 0.9, 0.25, 1),
+    background-color 320ms ease,
+    opacity 320ms ease,
+    transform 200ms ease;
+}
+.lg-wheel[data-axis="x"] .lg-wheel-body { width: 120px; height: 5px; }
+.lg-wheel.is-open .lg-wheel-body {
+  width: 46px;
+  height: 220px;
+  background: rgba(28, 28, 30, 0.55);
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.22), 0 10px 30px rgba(0, 0, 0, 0.45);
+  opacity: 1;
+}
+.lg-wheel.is-open[data-axis="x"] .lg-wheel-body { width: 220px; height: 46px; }
 .lg-wheel-ridges {
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(90deg, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0) 28%, rgba(0, 0, 0, 0) 72%, rgba(0, 0, 0, 0.85)),
-    repeating-linear-gradient(90deg, #6d6d6d 0 3px, #2a2a2a 3px 12px);
-  background-position: 0 0, var(--wheel-offset) 0;
+  opacity: 0;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.5) 0 1.5px, transparent 1.5px 10px);
+  background-position: 0 var(--wheel-offset);
+  -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent);
+  mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent);
+  transition: opacity 240ms ease;
+}
+.lg-wheel[data-axis="x"] .lg-wheel-ridges {
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.5) 0 1.5px, transparent 1.5px 10px);
+  background-position: var(--wheel-offset) 0;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
 }
 .lg-wheel-mark {
   position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 50%;
-  width: 3px;
-  border-radius: 2px;
+  top: 50%;
+  left: 9px;
+  right: 9px;
+  height: 2px;
+  border-radius: 1px;
   background: #fff;
-  transform: translateX(-50%);
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 240ms ease;
 }
-.lg-wheel.is-active { border-color: rgba(255, 255, 255, 0.7); }
+.lg-wheel[data-axis="x"] .lg-wheel-mark { top: 9px; bottom: 9px; left: 50%; right: auto; width: 2px; height: auto; transform: translateX(-50%); }
+.lg-wheel.is-open .lg-wheel-ridges,
+.lg-wheel.is-open .lg-wheel-mark { opacity: 1; }
+.lg-wheel.is-moving { cursor: grabbing; }
+.lg-wheel.is-moving .lg-wheel-body { transform: scale(1.06); background: rgba(255, 255, 255, 0.3); }
+.lg-wheel.is-moving .lg-wheel-ridges,
+.lg-wheel.is-moving .lg-wheel-mark { opacity: 0.4; }
 .art-lock .lg-wheel { opacity: 0.3; pointer-events: none; }
-/* Sideways the video fills the screen: show the wheel with the controls only. */
+/* Sideways the video fills the screen: the bar shows with the controls only. */
 @media (orientation: landscape) {
-  .lg-wheel { right: 24px; bottom: 72px; height: 54px; width: min(40vw, 300px); opacity: 0.85; }
-  .art-fullscreen:not(.art-control-show) .lg-wheel:not(.is-active),
-  .art-fullscreen-web:not(.art-control-show) .lg-wheel:not(.is-active) { display: none; }
+  .art-fullscreen:not(.art-control-show) .lg-wheel:not(.is-open),
+  .art-fullscreen-web:not(.art-control-show) .lg-wheel:not(.is-open) { display: none; }
 }
