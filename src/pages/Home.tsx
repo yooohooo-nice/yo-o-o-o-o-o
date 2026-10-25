@@ -319,7 +319,7 @@ export default function Home() {
                 type="text"
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
-                placeholder="粘贴视频地址、网页或磁力链接"
+                placeholder="粘贴视频地址、网页、网盘分享或磁力链接"
                 inputMode="url"
                 autoCapitalize="none"
                 autoCorrect="off"
@@ -330,7 +330,7 @@ export default function Home() {
               />
             </div>
             <p id="url-help" className="field-help">
-              支持 Jable、MissAV 网页，M3U8／MP4／MKV／FLV 等直链，以及磁力链接和种子地址。
+              支持 Jable、MissAV 网页，M3U8／MP4／MKV／FLV 等直链，PikPak 分享链接（有提取码请在后面加 ?pwd=提取码），以及磁力链接和种子地址。
             </p>
 
             {error && (
@@ -379,7 +379,9 @@ export default function Home() {
                 <span className="media-badge">
                   {result.site === "torrent"
                     ? "BT"
-                    : result.site === "direct"
+                    : result.site === "pikpak"
+                      ? "PikPak"
+                      : result.site === "direct"
                       ? "媒体直链"
                       : result.experimental
                         ? "实验性源站适配"
