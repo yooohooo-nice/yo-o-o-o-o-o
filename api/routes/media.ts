@@ -28,10 +28,13 @@ mediaRoutes.post(
     c.header("Cache-Control", "no-store");
     try {
       await requireAccess(c);
-      checkRateLimit(`resolve:${clientIp(c)}`, 30, 10 * 60 * 1000);
+      // Magnets poll this while searching for peers, hence the roomy limit.
+      checkRateLimit(`resolve:${clientIp(c)}`, 60, 10 * 60 * 1000);
       const { url, fileIndex } = resolveSchema.parse(await c.req.json());
       const resolved = await resolveMedia(url, fileIndex);
-      if ("needsFileChoice" in resolved) return c.json<ResolveResponse>(resolved);
+      if ("needsFileChoice" in resolved || "pending" in resolved) {
+        return c.json<ResolveResponse>(resolved);
+      }
       const library = await recordPlay({
         url,
         fileIndex: resolved.fileIndex,

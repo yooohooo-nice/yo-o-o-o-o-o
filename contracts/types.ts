@@ -43,7 +43,13 @@ export type TorrentChoice = {
   files: TorrentFile[];
 };
 
-export type ResolveResponse = ResolveMediaResult | TorrentChoice;
+/** A magnet is still looking for peers; the client asks again shortly. */
+export type TorrentPending = {
+  pending: true;
+  peers: number;
+};
+
+export type ResolveResponse = ResolveMediaResult | TorrentChoice | TorrentPending;
 
 export type LibraryItem = {
   id: string;

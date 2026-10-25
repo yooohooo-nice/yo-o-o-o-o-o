@@ -96,9 +96,14 @@ test("streams a torrent with byte ranges and remuxes it", async () => {
   await new Promise((r) => (seeder.listening ? r() : seeder.once("listening", r)));
   const magnet = `${seeded.magnetURI}&x.pe=127.0.0.1:${seeder.address().port}`;
 
-  const res = await post("/torrent", { magnet });
-  assert.equal(res.status, 200);
-  const info = await res.json();
+  // Like the app: ask again while the worker is still finding the peer.
+  let info;
+  for (let i = 0; i < 10; i += 1) {
+    const res = await post("/torrent", { magnet, waitMs: 5000 });
+    assert.equal(res.status, 200);
+    info = await res.json();
+    if (!info.pending) break;
+  }
   const movie = info.files.find((f) => f.name.endsWith("movie.mkv"));
   assert.equal(movie.kind, "remux");
   assert.equal(info.files.find((f) => f.name.endsWith("readme.txt")).kind, null);
@@ -112,4 +117,16 @@ test("streams a torrent with byte ranges and remuxes it", async () => {
 
   const job = await (await post("/remux-torrent", { infoHash: info.infoHash, index: movie.index })).json();
   await playlistUntil(job.id, (t) => t.includes("#EXT-X-ENDLIST"));
+});
+
+test("reports a magnet without peers as still searching instead of hanging", async () => {
+  const magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=nobody";
+  const started = Date.now();
+  const res = await post("/torrent", { magnet, waitMs: 1500 });
+  assert.equal(res.status, 200);
+  assert.deepEqual(Object.keys(await res.json()).sort(), ["peers", "pending"]);
+  assert.ok(Date.now() - started < 10_000);
+  // Asking again finds the same search rather than starting a new one.
+  const again = await (await post("/torrent", { magnet, waitMs: 500 })).json();
+  assert.equal(again.pending, true);
 });

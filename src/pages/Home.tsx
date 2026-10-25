@@ -85,6 +85,7 @@ export default function Home() {
   const [choice, setChoice] = useState<TorrentChoice | null>(null);
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState("");
+  const [searchStatus, setSearchStatus] = useState("");
   const [library, setLibrary] = useState<LibraryResponse>(EMPTY_LIBRARY);
   const [loggingOut, setLoggingOut] = useState(false);
   const requestRef = useRef(0);
@@ -137,11 +138,28 @@ export default function Home() {
     setResult(null);
     setChoice(null);
     scrollToPlayer();
+    setSearchStatus(/^magnet:/i.test(cleanUrl) ? "正在 BT 网络中寻找下载源…" : "");
     try {
-      const resolved = await apiFetch<ResolveResponse>("/api/media/resolve", {
+      let resolved = await apiFetch<ResolveResponse>("/api/media/resolve", {
         method: "POST",
         body: JSON.stringify({ url: cleanUrl, fileIndex }),
       });
+      // A magnet still looking for peers: ask again until the server has the
+      // file list (it gives up by itself after a few minutes).
+      while ("pending" in resolved) {
+        if (requestId !== requestRef.current) return;
+        setSearchStatus(
+          resolved.peers > 0
+            ? `正在获取种子信息，已连接 ${resolved.peers} 个用户…`
+            : "正在 BT 网络中寻找下载源…",
+        );
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        if (requestId !== requestRef.current) return;
+        resolved = await apiFetch<ResolveResponse>("/api/media/resolve", {
+          method: "POST",
+          body: JSON.stringify({ url: cleanUrl, fileIndex }),
+        });
+      }
       if (requestId !== requestRef.current) return;
       if ("needsFileChoice" in resolved) {
         setChoice(resolved);
@@ -384,8 +402,8 @@ export default function Home() {
               {resolving ? (
                 <>
                   <div className="resolve-bars" aria-hidden="true"><i /><i /><i /><i /></div>
-                  <p>正在解析</p>
-                  <span>磁力链接需要先找到下载源，可能要等半分钟到一分钟</span>
+                  <p>{searchStatus || "正在解析"}</p>
+                  <span>磁力链接需要先找到下载源，冷门资源可能要等一两分钟</span>
                 </>
               ) : (
                 <>

@@ -29,7 +29,11 @@ const TORRENT_PORT = Number(process.env.TORRENT_PORT || 6881);
 const UPLOAD_LIMIT = Number(process.env.BT_UPLOAD_LIMIT_KB || 200) * 1024;
 const TORRENT_IDLE_MS = Number(process.env.TORRENT_IDLE_MIN || 30) * 60_000;
 const REMUX_IDLE_MS = Number(process.env.REMUX_IDLE_HOURS || 6) * 3_600_000;
-const METADATA_TIMEOUT_MS = 90_000;
+// Finding peers for a magnet can take minutes. Each request waits a short
+// while and otherwise reports "still searching"; the search itself keeps
+// going in the background until this deadline.
+const METADATA_TIMEOUT_MS = 180_000;
+const METADATA_WAIT_MS = 20_000;
 // Updated once the server listens, so remuxing a torrent reads from whatever
 // port this process actually got.
 let selfUrl = `http://127.0.0.1:${PORT}`;
@@ -253,7 +257,40 @@ function describe(torrent) {
   };
 }
 
-async function addTorrent({ magnet, torrentBase64 }) {
+/** @type {Map<object, number>} torrents still looking for metadata → when added */
+const pendingSince = new Map();
+
+function waitReady(torrent, ms) {
+  return new Promise((resolve, reject) => {
+    if (torrent.ready) return resolve(true);
+    const cleanup = () => {
+      clearTimeout(timer);
+      torrent.off("ready", onReady);
+      torrent.off("error", onError);
+    };
+    const onReady = () => {
+      cleanup();
+      resolve(true);
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(new HttpError(400, "BAD_TORRENT", `种子无效：${error.message}`));
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(false);
+    }, ms);
+    torrent.once("ready", onReady);
+    torrent.once("error", onError);
+  });
+}
+
+async function dropPending(torrent) {
+  pendingSince.delete(torrent);
+  await new Promise((resolve) => torrent.destroy({ destroyStore: true }, resolve));
+}
+
+async function addTorrent({ magnet, torrentBase64, waitMs = METADATA_WAIT_MS }) {
   const bt = await client();
   const torrentId = magnet || Buffer.from(String(torrentBase64 || ""), "base64");
   if (!magnet && !torrentId.length) throw new HttpError(400, "BAD_REQUEST", "缺少磁力链接或种子文件。");
@@ -262,9 +299,9 @@ async function addTorrent({ magnet, torrentBase64 }) {
     torrentAccess.set(existing.infoHash, Date.now());
     return describe(existing);
   }
-  await ensureSpace();
   let torrent = existing;
   if (!torrent) {
+    await ensureSpace();
     torrent = bt.add(torrentId, {
       path: TORRENT_DIR,
       deselect: true,
@@ -272,24 +309,22 @@ async function addTorrent({ magnet, torrentBase64 }) {
     });
     // Without a listener, a later torrent error would crash the whole worker.
     torrent.on("error", (error) => log("torrent error", { error: error.message }));
+    pendingSince.set(torrent, Date.now());
   }
-  await new Promise((resolve, reject) => {
-    if (torrent.ready) return resolve();
-    const timer = setTimeout(() => {
-      reject(new HttpError(504, "METADATA_TIMEOUT", "找不到下载源：暂时没有人在分享这个资源，请换一个链接或稍后再试。"));
-    }, METADATA_TIMEOUT_MS);
-    torrent.once("ready", () => {
-      clearTimeout(timer);
-      resolve();
+  const ready = await waitReady(torrent, Math.min(Number(waitMs) || METADATA_WAIT_MS, METADATA_TIMEOUT_MS))
+    .catch(async (error) => {
+      await dropPending(torrent);
+      throw error;
     });
-    torrent.once("error", (error) => {
-      clearTimeout(timer);
-      reject(new HttpError(400, "BAD_TORRENT", `种子无效：${error.message}`));
-    });
-  }).catch((error) => {
-    torrent.destroy({ destroyStore: true });
-    throw error;
-  });
+  if (!ready) {
+    const since = pendingSince.get(torrent) ?? Date.now();
+    if (Date.now() - since < METADATA_TIMEOUT_MS) {
+      return { pending: true, peers: torrent.numPeers };
+    }
+    await dropPending(torrent);
+    throw new HttpError(504, "METADATA_TIMEOUT", "找不到下载源：暂时没有人在分享这个资源，请换一个链接或稍后再试。");
+  }
+  pendingSince.delete(torrent);
   torrentAccess.set(torrent.infoHash, Date.now());
   log("torrent ready", { infoHash: torrent.infoHash, files: torrent.files.length });
   return describe(torrent);
@@ -397,6 +432,10 @@ async function sweepIdle() {
   }
   for (const [hash, at] of [...torrentAccess]) {
     if (now - at > TORRENT_IDLE_MS) await removeTorrent(hash);
+  }
+  // Searches nobody polls any more (the page was closed).
+  for (const [torrent, since] of [...pendingSince]) {
+    if (now - since > METADATA_TIMEOUT_MS) await dropPending(torrent);
   }
   await ensureSpace();
 }

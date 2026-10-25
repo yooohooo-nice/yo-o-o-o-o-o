@@ -6,6 +6,7 @@ import type {
   ResolveMediaResult,
   TorrentChoice,
   TorrentFile,
+  TorrentPending,
 } from "@contracts/types";
 import { appInternalUrl, internalSecret, workerJson } from "./mediaWorker";
 import { env } from "./lib/env";
@@ -579,7 +580,7 @@ async function remuxRemote(input: URL): Promise<ResolvedStream> {
 async function resolveDirect(
   input: URL,
   fileIndex: number | undefined,
-): Promise<ResolvedStream | TorrentChoice> {
+): Promise<ResolvedStream | TorrentChoice | TorrentPending> {
   await assertPublicUrl(input);
   const format = formatFromExtension(input.pathname) || (await sniffFormat(input));
   if (format === "torrent") return resolveTorrentUrl(input, fileIndex);
@@ -621,7 +622,7 @@ async function playTorrent(
   torrent: WorkerTorrent,
   sourceUrl: string,
   fileIndex: number | undefined,
-): Promise<ResolvedStream | TorrentChoice> {
+): Promise<ResolvedStream | TorrentChoice | TorrentPending> {
   const videos = torrent.files
     .filter((file) => file.kind)
     .sort((a, b) => b.length - a.length);
@@ -674,18 +675,21 @@ async function playTorrent(
 async function resolveMagnet(
   magnet: string,
   fileIndex: number | undefined,
-): Promise<ResolvedStream | TorrentChoice> {
+): Promise<ResolvedStream | TorrentChoice | TorrentPending> {
   if (!/[?&]xt=urn:btih:[0-9a-z]{32,40}(&|$)/i.test(magnet) || magnet.length > 8192) {
     throw new RouteError(400, "磁力链接格式不正确。", "INVALID_MAGNET");
   }
-  const torrent = await workerJson<WorkerTorrent>("/torrent", { magnet }, 100_000);
+  // The worker answers within ~20 s ("still searching" if needed), well
+  // under the ~60 s after which iPhone Safari abandons a request.
+  const torrent = await workerJson<WorkerTorrent | TorrentPending>("/torrent", { magnet }, 40_000);
+  if ("pending" in torrent) return torrent;
   return playTorrent(torrent, magnet, fileIndex);
 }
 
 async function resolveTorrentUrl(
   input: URL,
   fileIndex: number | undefined,
-): Promise<ResolvedStream | TorrentChoice> {
+): Promise<ResolvedStream | TorrentChoice | TorrentPending> {
   const { response } = await fetchPublic(input.href, {
     headers: mediaHeaders(),
     timeoutMs: 20_000,
@@ -695,18 +699,19 @@ async function resolveTorrentUrl(
     throw new RouteError(502, `种子文件下载失败（${response.status}）。`, "TORRENT_DOWNLOAD_FAILED");
   }
   const bytes = await readBytes(response, MAX_TORRENT_BYTES);
-  const torrent = await workerJson<WorkerTorrent>(
+  const torrent = await workerJson<WorkerTorrent | TorrentPending>(
     "/torrent",
     { torrentBase64: bytes.toString("base64") },
-    100_000,
+    40_000,
   );
+  if ("pending" in torrent) return torrent;
   return playTorrent(torrent, input.href, fileIndex);
 }
 
 export async function resolveMedia(
   rawUrl: string,
   fileIndex?: number,
-): Promise<ResolvedStream | TorrentChoice> {
+): Promise<ResolvedStream | TorrentChoice | TorrentPending> {
   const trimmed = rawUrl.trim();
   if (/^magnet:\?/i.test(trimmed)) return resolveMagnet(trimmed, fileIndex);
 
