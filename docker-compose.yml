@@ -19,6 +19,9 @@ services:
       # MKV/FLV/AVI 转换与 BT 边下边播
       MEDIA_URL: http://media:8090
       APP_INTERNAL_URL: http://app:3000
+      # PikPak 等网盘分享经 OpenList 读取；管理员密码与 openlist 服务共用 APP_SECRET
+      OPENLIST_URL: http://openlist:5244
+      OPENLIST_PASSWORD: ${APP_SECRET:?请在 .env 里设置 APP_SECRET}
     # 只监听本机，外部无法直接访问 3000 端口，必须经过 Caddy / Tailscale。
     ports:
       - "127.0.0.1:3000:3000"
@@ -29,6 +32,23 @@ services:
         condition: service_started
       media:
         condition: service_started
+      openlist:
+        condition: service_started
+
+  # 网盘服务（OpenList）：PikPak 分享链接靠它读取文件列表和下载地址。
+  # 只在内部网络可见，由 app 自动管理，不需要打开它的网页。
+  openlist:
+    # 用最新版：PikPak 的接口经常变，OpenList 会跟着更新。
+    image: openlistteam/openlist:latest
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      # 只在第一次启动、还没有管理员时生效
+      OPENLIST_ADMIN_PASSWORD: ${APP_SECRET:?请在 .env 里设置 APP_SECRET}
+      UMASK: "022"
+      TZ: Asia/Shanghai
+    volumes:
+      - openlist-data:/opt/openlist/data
 
   # 媒体服务：ffmpeg 转封装（不重新压缩视频）+ BT 边下边播。只在内部网络可见。
   media:
@@ -107,6 +127,7 @@ services:
       - app
 
 volumes:
+  openlist-data:
   media-data:
   db-data:
   caddy-data:

@@ -62,6 +62,12 @@
 - 用途：`media/` 服务中磁力链接与种子的边下边播。
 - 许可证：MIT。
 
+## OpenList
+
+- 项目：https://github.com/OpenListTeam/OpenList
+- 用途：作为独立的 Docker 服务读取 PikPak 分享（PikPakShare 驱动）。以官方镜像运行，未修改、未与本项目代码链接，仅通过 HTTP API 调用。
+- 许可证：AGPL-3.0。
+
 ## FFmpeg
 
 - 项目：https://ffmpeg.org
