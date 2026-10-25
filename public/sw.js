@@ -1,7 +1,7 @@
 // Service worker for the installable app. It only speeds up and steadies the
 // app shell; it never touches /api/*, so login state, resolving and video
 // streams always go straight to the server.
-const CACHE = "liuguang-shell-v1";
+const CACHE = "liuguang-shell-v2";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

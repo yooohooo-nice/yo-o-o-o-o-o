@@ -51,6 +51,7 @@
     "@trpc/react-query": "^11.8.1",
     "@trpc/server": "^11.8.1",
     "ai": "6.0.290",
+    "artplayer": "5.4.0",
     "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -1,0 +1,14 @@
+{
+  "name": "liuguang-media",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Internal worker: remuxes MKV/FLV/AVI/TS to HLS with ffmpeg and streams BitTorrent files.",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "webtorrent": "3.0.21"
+  }
+}

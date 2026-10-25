@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertPublicUrl, resolveMedia } from "./media";
+import {
+  assertPublicUrl,
+  formatFromBytes,
+  formatFromExtension,
+  resolveMedia,
+} from "./media";
 import { checkRateLimit } from "./routeUtils";
 
 describe("media URL safety", () => {
@@ -53,4 +58,41 @@ describe("source failure behavior", () => {
       code: "SITE_RESOLVE_FAILED",
     });
   }, 30_000);
+});
+
+describe("direct link format detection", () => {
+  it.each([
+    ["/v/index.m3u8", "hls"],
+    ["/v/movie.MP4", "file"],
+    ["/v/clip.webm", "file"],
+    ["/v/movie.mkv", "remux"],
+    ["/v/live.flv", "remux"],
+    ["/v/old.avi", "remux"],
+    ["/d/pack.torrent", "torrent"],
+    ["/play", null],
+  ])("by extension %s → %s", (path, expected) => {
+    expect(formatFromExtension(path)).toBe(expected);
+  });
+
+  const pad = (head: Buffer) => Buffer.concat([head, Buffer.alloc(512)]);
+  it.each([
+    ["HLS playlist", Buffer.from("#EXTM3U\n#EXT-X-VERSION:3\n"), "", "hls"],
+    ["MP4", pad(Buffer.from("\0\0\0\x18ftypisom", "latin1")), "", "file"],
+    ["WebM", pad(Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x82, 0x84, ...Buffer.from("webm")])), "", "file"],
+    ["Matroska", pad(Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x82, 0x88, ...Buffer.from("matroska")])), "", "remux"],
+    ["FLV", pad(Buffer.from("FLV\x01")), "", "remux"],
+    ["AVI", pad(Buffer.from("RIFF\0\0\0\0AVI LIST", "latin1")), "", "remux"],
+    ["torrent", Buffer.from("d8:announce35:udp://tracker"), "", "torrent"],
+    ["web page", Buffer.from("<!DOCTYPE html><html>"), "text/html; charset=utf-8", "html"],
+    ["video/* header only", Buffer.alloc(16), "video/x-matroska", "remux"],
+    ["unknown bytes", Buffer.alloc(16), "application/octet-stream", null],
+  ])("by content: %s", (_name, head, type, expected) => {
+    expect(formatFromBytes(head as Buffer, type as string)).toBe(expected);
+  });
+
+  it("accepts magnet links and rejects malformed ones", async () => {
+    await expect(resolveMedia("magnet:?dn=no-hash")).rejects.toMatchObject({
+      code: "INVALID_MAGNET",
+    });
+  });
 });

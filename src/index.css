@@ -650,22 +650,15 @@
   background: var(--ink-950);
 }
 
-.video-element {
-  display: block;
+.art-host {
   width: 100%;
   height: 100%;
-  background: var(--ink-950);
-  object-fit: contain;
-  opacity: 0.22;
-  filter: blur(50px);
-  transform: scale(1.025);
-  transition: filter 600ms ease, opacity 600ms ease, transform 600ms ease;
 }
 
-.video-frame.is-ready .video-element {
-  opacity: 1;
-  filter: blur(0);
-  transform: scale(1);
+.converting-note {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .player-state {
@@ -823,6 +816,74 @@
   color: var(--text-secondary);
   font-size: 12px;
 }
+
+.recent-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border-default);
+}
+.recent-row .recent-item { flex: 1; min-width: 0; border-bottom: 0; }
+.recent-remove { color: var(--text-secondary); }
+.recent-star { margin-right: 6px; vertical-align: -1px; color: var(--paper-200); }
+.recent-progress {
+  display: block;
+  width: min(240px, 100%);
+  height: 3px;
+  margin-top: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--ink-800);
+}
+.recent-progress i { display: block; height: 100%; background: var(--paper-200); }
+
+.library-tabs { gap: 4px; }
+.library-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 14px 12px 12px 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 700;
+}
+.library-tabs button.is-active { border-bottom-color: var(--text-primary); color: var(--text-primary); }
+
+.now-playing-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.favorite-button { color: var(--text-secondary); }
+.favorite-button.is-active { color: var(--text-primary); }
+
+.torrent-picker {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-media);
+  padding: 18px;
+  background: var(--ink-950);
+}
+.torrent-picker-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.torrent-picker-heading h3 { margin: 6px 0 14px; overflow-wrap: anywhere; font-size: 16px; }
+.torrent-files { display: flex; flex-direction: column; }
+.torrent-file {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-top: 1px solid var(--border-default);
+  padding: 14px 4px;
+  background: transparent;
+  text-align: left;
+}
+.torrent-file:hover { background: var(--ink-900); }
+.torrent-file span { overflow-wrap: anywhere; font-size: 14px; }
+.torrent-file small { color: var(--text-secondary); font-size: 12px; }
+
+/* ArtPlayer in the house style: monochrome, Satoshi for the clock. */
+.art-host .art-video-player {
+  font-family: "Satoshi", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+.art-host .art-notice { font-size: 15px; }
 
 .local-note {
   margin: 14px 0 0;

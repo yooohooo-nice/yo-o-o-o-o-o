@@ -2,7 +2,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { load } from "cheerio";
 import ipaddr from "ipaddr.js";
-import type { MediaKind, ResolveMediaResult } from "@contracts/types";
+import type {
+  ResolveMediaResult,
+  TorrentChoice,
+  TorrentFile,
+} from "@contracts/types";
+import { appInternalUrl, internalSecret, workerJson } from "./mediaWorker";
 import { env } from "./lib/env";
 import { RouteError } from "./routeUtils";
 
@@ -22,7 +27,7 @@ const MISSAV_HOSTS = [
   "missav.live",
 ] as const;
 
-type TokenKind = "auto" | "mp4" | "poster";
+type TokenKind = "auto" | "file" | "poster";
 type MediaHeaders = Record<string, string>;
 type MediaTokenPayload = {
   v: 1;
@@ -82,7 +87,7 @@ export function verifyMediaToken(token: string): MediaTokenPayload {
       payload.v !== 1 ||
       !payload.url ||
       payload.url.length > MAX_URL_LENGTH ||
-      !["auto", "mp4", "poster"].includes(payload.kind) ||
+      !["auto", "file", "poster"].includes(payload.kind) ||
       !Number.isFinite(payload.exp)
     ) {
       throw new Error("invalid payload");
@@ -241,8 +246,8 @@ async function fetchPublic(
   throw new RouteError(502, "媒体服务器重定向次数过多。", "TOO_MANY_REDIRECTS");
 }
 
-async function readLimited(response: Response, maxBytes: number): Promise<string> {
-  if (!response.body) return "";
+async function readBytes(response: Response, maxBytes: number): Promise<Buffer> {
+  if (!response.body) return Buffer.alloc(0);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -262,7 +267,11 @@ async function readLimited(response: Response, maxBytes: number): Promise<string
     if (error instanceof RouteError) throw error;
     throw new RouteError(502, "读取源站响应失败。", "UPSTREAM_READ_FAILED");
   }
-  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+}
+
+async function readLimited(response: Response, maxBytes: number): Promise<string> {
+  return (await readBytes(response, maxBytes)).toString("utf8");
 }
 
 function pageHeaders(host: string): MediaHeaders {
@@ -364,6 +373,9 @@ function parsePage(html: string, site: "jable" | "missav") {
   return { title: title.trim(), poster, playlist };
 }
 
+/** A resolved stream before the library (history/progress) fields are added. */
+export type ResolvedStream = Omit<ResolveMediaResult, "libraryId" | "resumeAt" | "favorite">;
+
 function resultForResolvedPage(input: {
   sourceUrl: string;
   site: "jable" | "missav";
@@ -371,7 +383,7 @@ function resultForResolvedPage(input: {
   title: string;
   poster: string | null;
   playlist: string;
-}): ResolveMediaResult {
+}): ResolvedStream {
   const expiresAt = Date.now() + TOKEN_TTL_MS;
   const headers = mediaHeaders(input.finalHost, input.site === "missav");
   const streamToken = createMediaToken(input.playlist, "auto", headers, expiresAt);
@@ -395,7 +407,7 @@ function resultForResolvedPage(input: {
 async function resolveSitePage(
   input: URL,
   site: "jable" | "missav",
-): Promise<ResolveMediaResult> {
+): Promise<ResolvedStream> {
   const hosts = site === "jable" ? JABLE_HOSTS : MISSAV_HOSTS;
   const candidates = candidateUrls(input, hosts);
   for (const candidate of candidates) {
@@ -432,6 +444,96 @@ async function resolveSitePage(
   );
 }
 
+
+// ── direct links ──────────────────────────────────────────────────────────
+// Browsers play MP4/MOV/WebM files themselves; MKV, FLV, AVI, TS and friends
+// are repackaged to HLS by the media worker (video is copied, not re-encoded).
+
+export type DirectFormat = "hls" | "file" | "remux" | "torrent";
+
+const FILE_EXTENSIONS = /\.(mp4|m4v|mov|webm)$/i;
+const REMUX_EXTENSIONS = /\.(mkv|flv|f4v|avi|ts|m2ts|mts|wmv|asf|mpg|mpeg|vob|3gp|rmvb|rm)$/i;
+const SNIFF_BYTES = 4096;
+const MAX_TORRENT_BYTES = 4 * 1024 * 1024;
+
+export function formatFromExtension(pathname: string): DirectFormat | null {
+  if (/\.m3u8$/i.test(pathname)) return "hls";
+  if (FILE_EXTENSIONS.test(pathname)) return "file";
+  if (REMUX_EXTENSIONS.test(pathname)) return "remux";
+  if (/\.torrent$/i.test(pathname)) return "torrent";
+  return null;
+}
+
+/** Identifies a link without a telling extension from its first bytes. */
+export function formatFromBytes(
+  head: Buffer,
+  contentType: string,
+): DirectFormat | "html" | null {
+  const type = contentType.toLowerCase();
+  const text = head.subarray(0, 64).toString("latin1").trimStart();
+  if (text.startsWith("#EXTM3U") || /mpegurl/.test(type)) return "hls";
+  if (/^d\d+:(announce|info|created|comment)/.test(text) || type.includes("bittorrent")) {
+    return "torrent";
+  }
+  if (head.subarray(4, 8).toString("latin1") === "ftyp") return "file";
+  if (head.readUInt32BE(0) === 0x1a45dfa3) {
+    // Matroska and WebM share the EBML header; only the DocType differs.
+    return head.includes(Buffer.from("webm")) ? "file" : "remux";
+  }
+  if (text.startsWith("FLV")) return "remux";
+  if (text.startsWith("RIFF") && head.subarray(8, 12).toString("latin1") === "AVI ") {
+    return "remux";
+  }
+  if (head.length > 376 && head[0] === 0x47 && head[188] === 0x47 && head[376] === 0x47) {
+    return "remux";
+  }
+  if (/^video\/(mp4|quicktime|webm)/.test(type)) return "file";
+  if (type.startsWith("video/")) return "remux";
+  if (type.includes("text/html") || /^<(!doctype|html)/i.test(text)) return "html";
+  return null;
+}
+
+async function sniffFormat(url: URL): Promise<DirectFormat> {
+  const { response } = await fetchPublic(url.href, {
+    headers: { ...mediaHeaders(), Range: `bytes=0-${SNIFF_BYTES - 1}` },
+    timeoutMs: 20_000,
+    stream: true,
+  });
+  if (response.status >= 400) {
+    await response.body?.cancel();
+    throw new RouteError(
+      502,
+      `视频地址无法访问（源站返回 ${response.status}）。`,
+      "UPSTREAM_STATUS",
+    );
+  }
+  const chunks: Buffer[] = [];
+  let total = 0;
+  const reader = response.body?.getReader();
+  while (reader && total < SNIFF_BYTES) {
+    const { done, value } = await reader.read();
+    if (done || !value) break;
+    chunks.push(Buffer.from(value));
+    total += value.byteLength;
+  }
+  await reader?.cancel().catch(() => undefined);
+  const format = formatFromBytes(
+    Buffer.concat(chunks),
+    response.headers.get("content-type") || "",
+  );
+  if (format === "html") {
+    throw new RouteError(
+      400,
+      "这是一个网页，不是视频文件。网页目前只支持 Jable、MissAV。",
+      "NOT_A_VIDEO",
+    );
+  }
+  if (!format) {
+    throw new RouteError(400, "无法识别这个地址的视频格式。", "UNSUPPORTED_FORMAT");
+  }
+  return format;
+}
+
 function directTitle(url: URL): string {
   const rawSegment = url.pathname.split("/").filter(Boolean).pop() || "直链视频";
   let segment = rawSegment;
@@ -440,41 +542,182 @@ function directTitle(url: URL): string {
   } catch {
     // Keep the readable raw path segment when its percent-encoding is malformed.
   }
-  return segment.replace(/\.(m3u8|mp4)$/i, "") || "直链视频";
+  return segment.replace(/\.[a-z0-9]{2,5}$/i, "") || "直链视频";
 }
 
-export async function resolveMedia(rawUrl: string): Promise<ResolveMediaResult> {
+function streamPath(token: string): string {
+  return `/api/media/stream?token=${encodeURIComponent(token)}`;
+}
+
+async function remuxRemote(input: URL): Promise<ResolvedStream> {
+  const expiresAt = Date.now() + TOKEN_TTL_MS;
+  // The worker reads the source through this app, so the same public-address
+  // checks and Cloudflare-proof fetching apply to it.
+  const sourceToken = createMediaToken(input.href, "file", mediaHeaders(), expiresAt);
+  const job = await workerJson<{ id: string }>(
+    "/remux",
+    {
+      key: input.href,
+      input: `${appInternalUrl()}/internal/source?token=${encodeURIComponent(sourceToken)}`,
+      headers: { "x-internal-secret": internalSecret() },
+    },
+    90_000,
+  );
+  return {
+    title: directTitle(input),
+    sourceUrl: input.href,
+    site: "direct",
+    kind: "hls",
+    streamUrl: `/api/media/remux/${job.id}/index.m3u8`,
+    posterUrl: null,
+    expiresAt,
+    experimental: false,
+    converting: true,
+  };
+}
+
+async function resolveDirect(
+  input: URL,
+  fileIndex: number | undefined,
+): Promise<ResolvedStream | TorrentChoice> {
+  await assertPublicUrl(input);
+  const format = formatFromExtension(input.pathname) || (await sniffFormat(input));
+  if (format === "torrent") return resolveTorrentUrl(input, fileIndex);
+  if (format === "remux") return remuxRemote(input);
+  const expiresAt = Date.now() + TOKEN_TTL_MS;
+  const token = createMediaToken(
+    input.href,
+    format === "file" ? "file" : "auto",
+    mediaHeaders(),
+    expiresAt,
+  );
+  return {
+    title: directTitle(input),
+    sourceUrl: input.href,
+    site: "direct",
+    kind: format === "file" ? "file" : "hls",
+    streamUrl: streamPath(token),
+    posterUrl: null,
+    expiresAt,
+    experimental: false,
+  };
+}
+
+// ── BitTorrent ────────────────────────────────────────────────────────────
+
+type WorkerTorrent = {
+  infoHash: string;
+  name: string;
+  files: (TorrentFile & { kind: "direct" | "remux" | null })[];
+};
+
+const VIDEO_NAME = /\.(mp4|m4v|mov|webm|mkv|avi|flv|ts|m2ts|mts|wmv|mpg|mpeg|rmvb|rm|3gp)$/i;
+
+function baseName(name: string): string {
+  return (name.split("/").pop() || name).replace(VIDEO_NAME, "");
+}
+
+async function playTorrent(
+  torrent: WorkerTorrent,
+  sourceUrl: string,
+  fileIndex: number | undefined,
+): Promise<ResolvedStream | TorrentChoice> {
+  const videos = torrent.files
+    .filter((file) => file.kind)
+    .sort((a, b) => b.length - a.length);
+  if (!videos.length) {
+    throw new RouteError(400, "这个种子里没有可播放的视频文件。", "NO_VIDEO_IN_TORRENT");
+  }
+  const chosen = fileIndex === undefined
+    ? videos.length === 1 ? videos[0] : undefined
+    : videos.find((file) => file.index === fileIndex);
+  if (!chosen) {
+    if (fileIndex !== undefined) {
+      throw new RouteError(400, "种子里没有这个文件。", "BAD_FILE_INDEX");
+    }
+    return {
+      needsFileChoice: true,
+      title: torrent.name,
+      sourceUrl,
+      files: videos.map(({ index, name, length }) => ({ index, name, length })),
+    };
+  }
+  const base = {
+    title: baseName(chosen.name),
+    sourceUrl,
+    site: "torrent" as const,
+    posterUrl: null,
+    expiresAt: Date.now() + TOKEN_TTL_MS,
+    experimental: false,
+    fileIndex: chosen.index,
+  };
+  if (chosen.kind === "direct") {
+    return {
+      ...base,
+      kind: "file",
+      streamUrl: `/api/media/torrent/${torrent.infoHash}/${chosen.index}`,
+    };
+  }
+  const job = await workerJson<{ id: string }>(
+    "/remux-torrent",
+    { infoHash: torrent.infoHash, index: chosen.index },
+    90_000,
+  );
+  return {
+    ...base,
+    kind: "hls",
+    streamUrl: `/api/media/remux/${job.id}/index.m3u8`,
+    converting: true,
+  };
+}
+
+async function resolveMagnet(
+  magnet: string,
+  fileIndex: number | undefined,
+): Promise<ResolvedStream | TorrentChoice> {
+  if (!/[?&]xt=urn:btih:[0-9a-z]{32,40}(&|$)/i.test(magnet) || magnet.length > 8192) {
+    throw new RouteError(400, "磁力链接格式不正确。", "INVALID_MAGNET");
+  }
+  const torrent = await workerJson<WorkerTorrent>("/torrent", { magnet }, 100_000);
+  return playTorrent(torrent, magnet, fileIndex);
+}
+
+async function resolveTorrentUrl(
+  input: URL,
+  fileIndex: number | undefined,
+): Promise<ResolvedStream | TorrentChoice> {
+  const { response } = await fetchPublic(input.href, {
+    headers: mediaHeaders(),
+    timeoutMs: 20_000,
+  });
+  if (response.status !== 200) {
+    await response.body?.cancel();
+    throw new RouteError(502, `种子文件下载失败（${response.status}）。`, "TORRENT_DOWNLOAD_FAILED");
+  }
+  const bytes = await readBytes(response, MAX_TORRENT_BYTES);
+  const torrent = await workerJson<WorkerTorrent>(
+    "/torrent",
+    { torrentBase64: bytes.toString("base64") },
+    100_000,
+  );
+  return playTorrent(torrent, input.href, fileIndex);
+}
+
+export async function resolveMedia(
+  rawUrl: string,
+  fileIndex?: number,
+): Promise<ResolvedStream | TorrentChoice> {
+  const trimmed = rawUrl.trim();
+  if (/^magnet:\?/i.test(trimmed)) return resolveMagnet(trimmed, fileIndex);
+
   let input: URL;
   try {
-    input = new URL(rawUrl.trim());
+    input = new URL(trimmed);
   } catch {
-    throw new RouteError(400, "请输入完整、有效的视频地址。", "INVALID_URL");
+    throw new RouteError(400, "请输入完整、有效的视频地址或磁力链接。", "INVALID_URL");
   }
   if (!["http:", "https:"].includes(input.protocol) || input.username || input.password) {
-    throw new RouteError(400, "请输入有效的 HTTP／HTTPS 地址。", "INVALID_URL");
-  }
-
-  const pathname = input.pathname.toLowerCase();
-  if (pathname.endsWith(".m3u8") || pathname.endsWith(".mp4")) {
-    await assertPublicUrl(input);
-    const kind: MediaKind = pathname.endsWith(".mp4") ? "mp4" : "hls";
-    const expiresAt = Date.now() + TOKEN_TTL_MS;
-    const token = createMediaToken(
-      input.href,
-      kind === "mp4" ? "mp4" : "auto",
-      mediaHeaders(),
-      expiresAt,
-    );
-    return {
-      title: directTitle(input),
-      sourceUrl: input.href,
-      site: "direct",
-      kind,
-      streamUrl: `/api/media/stream?token=${encodeURIComponent(token)}`,
-      posterUrl: null,
-      expiresAt,
-      experimental: false,
-    };
+    throw new RouteError(400, "请输入有效的 HTTP／HTTPS 地址或磁力链接。", "INVALID_URL");
   }
 
   const host = canonicalHost(input.hostname);
@@ -491,12 +734,7 @@ export async function resolveMedia(rawUrl: string): Promise<ResolveMediaResult> 
     }
     return resolveSitePage(input, "missav");
   }
-
-  throw new RouteError(
-    400,
-    "目前支持 Jable、MissAV 视频页，以及 .m3u8／.mp4 直链。",
-    "UNSUPPORTED_SITE",
-  );
+  return resolveDirect(input, fileIndex);
 }
 
 function rewritePlaylist(

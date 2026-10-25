@@ -1,26 +1,39 @@
 # 流光播放器
 
-一个手机优先、密码保护的网页播放器。粘贴视频页或媒体直链后，由服务端实时解析并通过同源代理播放；服务器不保存视频文件，也不提供公共下载。
+一个手机优先、密码保护的网页播放器。粘贴视频页、媒体直链或磁力链接后，由服务端实时解析并通过同源代理播放。
 
-## 第一版功能
+## 功能
 
-- 共享密码访问与 18 岁确认。
-- HttpOnly 会话 Cookie；数据库仅保存会话令牌哈希。
-- 连续 5 次密码错误后锁定 15 分钟；解析、播放和封面接口分别限流。
-- 支持 `.m3u8` 与 `.mp4` 公网直链。
-- 实验性支持 Jable、MissAV 单个视频页及已配置的镜像。
-- HLS 播放列表、分片、密钥与 MAP 地址由服务端重新签名并代理。
-- Chrome、Edge 等浏览器使用 Hls.js；Safari 使用原生 HLS。
-- 内置 Mux 公开测试流“播放自检”，用于独立验证密码、解析、代理和播放器链路。
-- 最近解析记录只保存在当前浏览器的 `localStorage`，不上传为服务端历史记录。
+- **播放器**（ArtPlayer）：拖动进度条显示时间；手机上左右滑动快进快退并显示 `12:34 / 45:00`；长按 3 倍速；双击左右两侧快退／快进 10 秒、双击中间暂停；倍速、画面比例、画中画、AirPlay、锁屏；电脑快捷键（空格、方向键）。iPhone 点全屏进入系统原生播放器。
+- **播放记录同步**：最近播放、收藏和每个视频的播放进度保存在服务器，手机和电脑之间同步，重新打开自动从上次位置继续。
+- **从分享菜单打开**：安卓可在任意 App 的分享菜单直接选“流光”；iPhone 通过“快捷指令”实现（见下文）。也可以直接打开 `https://你的域名/?url=视频地址`。
+- 共享密码访问与 18 岁确认；HttpOnly 会话 Cookie；连续 5 次密码错误锁定 15 分钟；各接口限流。
+- 可以添加到手机主屏幕，像 App 一样全屏打开（PWA）。
+- 内置 Mux 公开测试流“播放自检”。
 
-## 使用限制
+## 支持的链接
+
+| 链接 | 怎么播放 |
+|---|---|
+| Jable、MissAV 视频页 | 解析出 HLS 后代理播放（经 fetcher 绕过 Cloudflare） |
+| `.m3u8` | HLS，播放列表、分片、密钥由服务端重写并代理 |
+| `.mp4` `.m4v` `.mov` `.webm` | 浏览器直接播放，支持拖动 |
+| `.mkv` `.flv` `.avi` `.ts` `.wmv` `.mpg` 等 | media 服务用 ffmpeg 转封装为 HLS（视频不重新压缩，只转音频），边转边播 |
+| 没有扩展名的直链 | 先读取文件开头自动识别格式 |
+| 磁力链接 `magnet:?xt=urn:btih:…` | BT 边下边播；多个视频时先选择文件 |
+| `.torrent` 种子地址 | 同上 |
+
+限制：
+- 转封装要求视频编码是 H.264 或 H.265（绝大多数文件都是）。老式 XviD／DivX、RMVB 等需要重新压缩，2 核服务器无法实时处理，会直接提示。H.265 在 iPhone 和大部分新电脑上能播，个别安卓／旧电脑不行。
+- 转封装期间往后拖动，需要等待已转换到那里；转换速度取决于源站速度，一般比播放快很多。
+- BT 速度取决于有多少人在分享；没人分享的资源会提示“找不到下载源”。
+
+## 使用须知
 
 - 仅限成年人使用。访问者须拥有所看内容的合法观看权限，并遵守源站条款与当地法律。
-- Jable／MissAV 适配为实验性功能，可能受到反爬、页面结构变化、地区限制和服务器网络影响。
-- 当前开发网络未能完成 Jable／MissAV 在线实测；公开 Mux 测试流的解析、列表重写和分片代理已通过自动化测试。
-- 不包含原 Windows 项目的本地下载、AI 字幕、OCR、Whisper 或离线翻译功能。
-- 可以添加到手机主屏幕，像 App 一样全屏打开（PWA）。
+- **BT 的特殊风险**：BT 协议在下载的同时一定会上传给其他人，你的服务器 IP 会出现在下载者列表里。下载受版权保护的内容在很多地区违法，不少 VPS 服务商也禁止 BT，收到版权投诉可能被封机。上传速度默认限制为 200 KB/s；不需要 BT 时可在 `.env` 设置 `BT_ENABLED=false`。
+- BT 和转封装的临时数据存放在服务器上，默认最多 8 GB（`MEDIA_MAX_GB`），超出或一段时间没人看会自动删除。
+- Jable／MissAV 适配可能受到反爬、页面结构变化和服务器网络影响。
 - 媒体地址防护包括协议、端口、公网 IP 和重定向检查，但不应被视为能够消除所有 DNS 或上游风险的绝对保证。
 
 ## 部署（个人自用）
@@ -67,15 +80,35 @@ Jable、MissAV 都在 Cloudflare 后面，Node 自带的请求很容易被识别
 
 查看是否触发了验证：`docker compose logs fetcher | grep challenge`。如果出现 `flaresolverr solved challenge` 说明已自动通过。
 
+### iPhone 分享菜单打开（快捷指令）
+
+iPhone 的网页 App 不能直接出现在分享菜单里，用系统自带的“快捷指令”App 做一个，只需设置一次：
+
+1. 打开“快捷指令” App → 右上角 `+` 新建。
+2. 点顶部名称改成“用流光播放”。点底部 ⓘ → 打开“在共享表单中显示”，接收类型只勾“URL”和“文本”。
+3. 添加操作“URL 编码”，输入选“快捷指令输入”。
+4. 添加操作“文本”，内容填 `https://你的域名/?url=`，然后在后面插入变量“URL 编码后的文本”。
+5. 添加操作“打开 URL”，输入选上一步的“文本”。完成。
+
+之后在 Safari、微信或其他 App 里点分享 → “用流光播放”，就会在 Safari 里打开并自动解析播放。磁力链接也可以先复制，再在快捷指令 App 里运行（把第 3 步输入改成“剪贴板”可以单独做一个“播放剪贴板”的快捷指令）。
+
 ### 添加到手机主屏幕（PWA）
 
 - **iPhone / iPad**：用 Safari 打开网址 → 点底部分享按钮 → “添加到主屏幕”。注意：主屏幕上的 App 和 Safari 的登录状态是分开的，第一次打开需要再输入一次密码。
 - **安卓**：用 Chrome 打开，页面顶部会出现“安装”按钮；或者在 Chrome 菜单里选“添加到主屏幕 / 安装应用”。
 
+### 更新到新版本
+
+```bash
+cd ~/liuguang && git pull && docker compose up -d --build
+```
+
+数据库表会在启动时自动升级，原来的设置和记录都会保留。
+
 ### 常用命令
 
 ```bash
-docker compose logs -f app       # 查看日志
+docker compose logs -f app       # 查看日志（换成 media 看 BT 和转换，fetcher 看源站访问）
 git pull && docker compose up -d --build   # 更新版本
 docker compose down              # 停止（数据保留）
 ```
@@ -106,6 +139,7 @@ npm run dev
 npm run check       # TypeScript 类型检查
 npm run test        # 访问控制与真实公开测试流集成测试
 (cd fetcher && pip install -r requirements.txt && python -m unittest test_app)  # 抓取服务测试
+(cd media && npm ci && npm test)  # 媒体服务测试（需要本机有 ffmpeg）
 npm run build       # 构建前端和自包含服务端 bundle
 npm start           # 生产模式启动
 ```
@@ -117,11 +151,15 @@ npm start           # 生产模式启动
 - `GET /api/access/status`
 - `POST /api/access/login`
 - `POST /api/access/logout`
-- `POST /api/media/resolve`
+- `POST /api/media/resolve`（`{ url, fileIndex? }`，种子有多个视频时返回文件列表）
 - `GET|HEAD /api/media/stream`
+- `GET|HEAD /api/media/remux/:id/:file`（转封装后的 HLS）
+- `GET|HEAD /api/media/torrent/:infoHash/:index`（BT 文件，支持 Range）
 - `GET /api/media/poster`
+- `GET /api/library`、`POST /api/library/progress`、`POST /api/library/favorite`、`DELETE /api/library/:id`、`DELETE /api/library/history`
+- `GET|HEAD /internal/source`（仅供 media 服务使用，需要内部密钥）
 
-媒体接口均要求有效访问会话。播放地址为短期签名地址，不是可任意指定目标的开放代理。
+媒体与记录接口均要求有效访问会话。播放地址为短期签名地址，不是可任意指定目标的开放代理。
 
 ## 来源与许可证
 

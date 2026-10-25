@@ -50,6 +50,24 @@
 - 用途：遇到 Cloudflare 验证页时，用无头 Chrome 通过验证。未修改、未打包进本项目，按需从官方镜像拉取。
 - 许可证：MIT。
 
+## ArtPlayer
+
+- 项目：https://github.com/zhw2590582/ArtPlayer
+- 用途：网页播放器界面、手势与控制。
+- 许可证：MIT。
+
+## WebTorrent
+
+- 项目：https://github.com/webtorrent/webtorrent
+- 用途：`media/` 服务中磁力链接与种子的边下边播。
+- 许可证：MIT。
+
+## FFmpeg
+
+- 项目：https://ffmpeg.org
+- 用途：`media/` 服务把 MKV、FLV 等转封装为 HLS。作为独立程序从 Debian 官方软件源安装并调用，未修改、未与本项目代码链接。
+- 许可证：LGPL／GPL（以 Debian 打包版本为准）。
+
 ## Mux 公开测试流
 
 - 主测试流：https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8

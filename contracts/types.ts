@@ -1,7 +1,14 @@
 export * from "./errors";
 
-export type MediaSite = "jable" | "missav" | "direct";
-export type MediaKind = "hls" | "mp4";
+export type MediaSite = "jable" | "missav" | "direct" | "torrent";
+/** hls: an HLS playlist (incl. ones remuxed on the server); file: a single progressive file. */
+export type MediaKind = "hls" | "file";
+
+export type ResolveRequest = {
+  url: string;
+  /** Torrent only: which file to play, from a previous TorrentChoice. */
+  fileIndex?: number;
+};
 
 export type ResolveMediaResult = {
   title: string;
@@ -12,6 +19,47 @@ export type ResolveMediaResult = {
   posterUrl: string | null;
   expiresAt: number;
   experimental: boolean;
+  /** The server is still converting the file: seeking past the converted part waits. */
+  converting?: boolean;
+  fileIndex?: number;
+  /** Key of this item in the synced library (history, favorites, progress). */
+  libraryId: string;
+  /** Saved playback position in seconds, if the video was watched before. */
+  resumeAt: number | null;
+  favorite: boolean;
+};
+
+export type TorrentFile = {
+  index: number;
+  name: string;
+  length: number;
+};
+
+/** A torrent with several videos: the user picks one, then resolves again with fileIndex. */
+export type TorrentChoice = {
+  needsFileChoice: true;
+  title: string;
+  sourceUrl: string;
+  files: TorrentFile[];
+};
+
+export type ResolveResponse = ResolveMediaResult | TorrentChoice;
+
+export type LibraryItem = {
+  id: string;
+  url: string;
+  fileIndex: number | null;
+  title: string;
+  site: MediaSite;
+  favorite: boolean;
+  position: number;
+  duration: number;
+  lastPlayedAt: number;
+};
+
+export type LibraryResponse = {
+  recent: LibraryItem[];
+  favorites: LibraryItem[];
 };
 
 export type AccessStatus = {

@@ -16,6 +16,9 @@ services:
       TRUST_PROXY: "1"
       # 所有对源站的请求都经过 fetcher，用伪装成 Chrome 的方式访问以绕过 Cloudflare。
       FETCHER_URL: http://fetcher:8080/fetch
+      # MKV/FLV/AVI 转换与 BT 边下边播
+      MEDIA_URL: http://media:8090
+      APP_INTERNAL_URL: http://app:3000
     # 只监听本机，外部无法直接访问 3000 端口，必须经过 Caddy / Tailscale。
     ports:
       - "127.0.0.1:3000:3000"
@@ -24,6 +27,27 @@ services:
         condition: service_healthy
       fetcher:
         condition: service_started
+      media:
+        condition: service_started
+
+  # 媒体服务：ffmpeg 转封装（不重新压缩视频）+ BT 边下边播。只在内部网络可见。
+  media:
+    build: ./media
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      # 只用来和 app 推导同一个内部密钥
+      APP_SECRET: ${APP_SECRET:?请在 .env 里设置 APP_SECRET}
+      BT_ENABLED: ${BT_ENABLED:-true}
+      BT_UPLOAD_LIMIT_KB: ${BT_UPLOAD_LIMIT_KB:-200}
+      MEDIA_MAX_GB: ${MEDIA_MAX_GB:-8}
+      TORRENT_IDLE_MIN: ${TORRENT_IDLE_MIN:-30}
+    volumes:
+      - media-data:/data
+    # BT 入站端口：让其他用户能连进来，下载更快。不想开放可以删掉这两行。
+    ports:
+      - "6881:6881"
+      - "6881:6881/udp"
 
   # 浏览器伪装抓取服务（curl_cffi），只在内部网络可见，不对外开放端口。
   fetcher:
@@ -52,6 +76,8 @@ services:
       MARIADB_RANDOM_ROOT_PASSWORD: "1"
     # 小内存服务器上压低 MariaDB 占用；只存两张很小的表，足够用。
     command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
       - --innodb-buffer-pool-size=32M
       - --performance-schema=OFF
       - --max-connections=30
@@ -81,6 +107,7 @@ services:
       - app
 
 volumes:
+  media-data:
   db-data:
   caddy-data:
   caddy-config:

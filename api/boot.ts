@@ -10,6 +10,8 @@ import { handleClientLog } from "./lib/clientlog";
 import { REQUEST_ID_HEADER, runWithRequestId } from "./lib/requestcontext";
 import { accessRoutes } from "./routes/access";
 import { mediaRoutes } from "./routes/media";
+import { libraryRoutes } from "./routes/library";
+import { internalRoutes } from "./routes/internal";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -78,6 +80,8 @@ app.post(
 );
 app.route("/api/access", accessRoutes);
 app.route("/api/media", mediaRoutes);
+app.route("/api/library", libraryRoutes);
+app.route("/internal", internalRoutes);
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
 // Unhandled request errors must reach /tmp/kimi-logs/app.log, not just stdout:
