@@ -65,7 +65,8 @@
 ## OpenList
 
 - 项目：https://github.com/OpenListTeam/OpenList
-- 用途：作为独立的 Docker 服务读取 PikPak 分享（PikPakShare 驱动）。以官方镜像运行，未修改、未与本项目代码链接，仅通过 HTTP API 调用。
+- 用途：作为独立的 Docker 服务挂载 PikPak 网盘和分享（PikPak / PikPakShare 驱动）。以官方镜像运行，未修改、未与本项目代码链接，仅通过 HTTP API 调用。
+- `api/pikpakApi.ts`（分享转存）参考了 OpenList PikPak 驱动中 PikPak 网页客户端的接口约定（client id、验证码签名步骤、登录流程），代码为本项目独立编写。
 - 许可证：AGPL-3.0。
 
 ## FFmpeg

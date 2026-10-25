@@ -8,13 +8,26 @@ import {
   listDir,
   rawUrl,
 } from "./openlist";
+import {
+  accountFromEnv,
+  ensureMyFolder,
+  fileLink,
+  listMyFolder,
+  listShareFolder,
+  openShare,
+  PikPakApiError,
+  restoreShareFiles,
+  type ShareEntry,
+} from "./pikpakApi";
 import { RouteError } from "./routeUtils";
 
-// PikPak share links (mypikpak.com/s/<id>) are opened through OpenList.
-// Each share is mounted as an OpenList "PikPakShare" storage; no PikPak
-// account is needed to list a share. Note that PikPak may only hand out a
-// preview link for files that have not been saved to one's own drive; the
-// "My PikPak" page (pikpakDrive.ts) plays saved files in full.
+// PikPak share links (mypikpak.com/s/<id>).
+// - With a PikPak account in .env, the chosen file is saved ("转存") into the
+//   drive folder 流光转存 and played from there, in full.
+// - Without an account, the share is mounted anonymously in OpenList; PikPak
+//   then usually only hands out a preview link.
+
+export const SAVE_FOLDER = "流光转存";
 
 const SHARE_HOSTS = /(^|\.)mypikpak\.(com|net)$|(^|\.)pikpak\.me$/i;
 const SHARE_ROOT = "/pikpak-share";
@@ -91,7 +104,7 @@ async function listVideos(mountPath: string): Promise<ShareFile[]> {
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export async function resolvePikPakShare(
+async function resolveAnonymously(
   share: PikPakShare,
   sourceUrl: string,
   fileIndex: number | undefined,
@@ -141,4 +154,111 @@ export async function resolvePikPakShare(
     // Download links expire and change; the file itself does not.
     key: `pikpak:${share.shareId}:${file.path}`,
   });
+}
+
+// ── with an account: save into the drive, then play ────────────────────────
+
+type SharedVideo = { id: string; path: string; name: string; size: number };
+
+async function shareVideos(shareId: string, passCodeToken: string, top: ShareEntry[]): Promise<SharedVideo[]> {
+  const videos: SharedVideo[] = [];
+  const queue: { entries: ShareEntry[]; prefix: string; depth: number }[] = [
+    { entries: top, prefix: "", depth: 0 },
+  ];
+  let calls = 0;
+  while (queue.length && videos.length < MAX_FILES) {
+    const { entries, prefix, depth } = queue.shift()!;
+    for (const entry of entries) {
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDir) {
+        if (depth < 4 && calls < MAX_LIST_CALLS) {
+          calls += 1;
+          queue.push({ entries: await listShareFolder(shareId, passCodeToken, entry.id), prefix: path, depth: depth + 1 });
+        }
+      } else if (VIDEO_NAME.test(entry.name)) {
+        videos.push({ id: entry.id, path, name: entry.name, size: entry.size });
+      }
+    }
+  }
+  return videos.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+let saveFolderId: string | null = null;
+
+/** The file's copy in the user's drive, saving it from the share if needed. */
+async function savedCopy(shareId: string, passCodeToken: string, video: SharedVideo): Promise<string> {
+  saveFolderId ??= await ensureMyFolder(SAVE_FOLDER);
+  const folderId = saveFolderId;
+  const find = async (parentId: string) =>
+    (await listMyFolder(parentId)).find(
+      (file) => !file.isDir && file.name === video.name && (!video.size || file.size === video.size),
+    );
+  const existing = await find(folderId);
+  if (existing) return existing.id;
+
+  await restoreShareFiles(shareId, passCodeToken, [video.id], folderId);
+  // Saving is usually instant; give PikPak a few seconds before giving up.
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 500 : 1500));
+    const saved = (await find(folderId)) || (await find(""));
+    if (saved) return saved.id;
+  }
+  throw new RouteError(504, "已经提交转存，但网盘里暂时还没有这个文件，请稍后重试。", "PIKPAK_SAVE_PENDING");
+}
+
+async function resolveWithAccount(
+  share: PikPakShare,
+  sourceUrl: string,
+  fileIndex: number | undefined,
+): Promise<ResolvedStream | TorrentChoice> {
+  const opened = await openShare(share.shareId, share.password);
+  const videos = await shareVideos(share.shareId, opened.passCodeToken, opened.files);
+  if (!videos.length) {
+    throw new RouteError(400, "这个 PikPak 分享里没有可播放的视频文件。", "NO_VIDEO_IN_SHARE");
+  }
+  const chosenIndex = fileIndex ?? (videos.length === 1 ? 0 : undefined);
+  if (chosenIndex === undefined) {
+    return {
+      needsFileChoice: true,
+      source: "pikpak",
+      title: "PikPak 分享（选择后自动转存到网盘）",
+      sourceUrl,
+      files: videos
+        .map((video, index) => ({ index, name: video.path, length: video.size }))
+        .sort((a, b) => b.length - a.length),
+    };
+  }
+  const video = videos[chosenIndex];
+  if (!video) throw new RouteError(400, "分享里没有这个文件，可能已被修改。", "BAD_FILE_INDEX");
+
+  const ownId = await savedCopy(share.shareId, opened.passCodeToken, video);
+  const link = await fileLink(ownId);
+  if (!link.url) throw new RouteError(502, "PikPak 没有返回播放地址。", "PIKPAK_NO_LINK");
+  return streamFromUrl(new URL(link.url), {
+    title: baseName(video.name),
+    sourceUrl,
+    site: "pikpak",
+    fileIndex: chosenIndex,
+    fileName: video.name,
+    // Download links expire and change; the saved file does not.
+    key: `pikpak-own:${ownId}`,
+  });
+}
+
+export async function resolvePikPakShare(
+  share: PikPakShare,
+  sourceUrl: string,
+  fileIndex: number | undefined,
+): Promise<ResolvedStream | TorrentChoice> {
+  if (!accountFromEnv()) return resolveAnonymously(share, sourceUrl, fileIndex);
+  try {
+    return await resolveWithAccount(share, sourceUrl, fileIndex);
+  } catch (error) {
+    // The save folder may have been deleted or renamed in the app meanwhile.
+    saveFolderId = null;
+    if (error instanceof PikPakApiError) {
+      throw new RouteError(502, `PikPak：${error.message}`, "PIKPAK_API_FAILED");
+    }
+    throw error;
+  }
 }

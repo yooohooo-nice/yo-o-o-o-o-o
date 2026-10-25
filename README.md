@@ -20,8 +20,8 @@
 | `.mp4` `.m4v` `.mov` `.webm` | 浏览器直接播放，支持拖动 |
 | `.mkv` `.flv` `.avi` `.ts` `.wmv` `.mpg` 等 | media 服务用 ffmpeg 转封装为 HLS（视频不重新压缩，只转音频），边转边播 |
 | 没有扩展名的直链 | 先读取文件开头自动识别格式 |
-| PikPak 分享 `mypikpak.com/s/…` | 经内置的 OpenList 读取分享；有提取码在链接后加 `?pwd=提取码`。未转存的分享通常只能播预览，完整播放请先转存到网盘，再从「我的 PikPak」打开 |
-| 我的 PikPak 网盘文件 | 填写 PikPak 账号后在「我的 PikPak」里浏览和播放；磁力链接可交给 PikPak 离线下载 |
+| PikPak 分享 `mypikpak.com/s/…` | 填写 PikPak 账号后，选中的文件自动转存到网盘「流光转存」文件夹再完整播放；有提取码在链接后加 `?pwd=提取码`。没填账号时经 OpenList 读取，通常只能播预览 |
+| 我的 PikPak 网盘文件 | 填写 PikPak 账号后在「我的 PikPak」里浏览和播放 |
 | 磁力链接 `magnet:?xt=urn:btih:…` | BT 边下边播；多个视频时先选择文件 |
 | `.torrent` 种子地址 | 同上 |
 
@@ -94,8 +94,7 @@ PIKPAK_PASSWORD=你的密码
 ```
 
 - **浏览并播放网盘里的文件**：完整播放，MKV 等格式自动转换，进度与收藏照常同步。
-- **磁力链接交给 PikPak 离线下载**：在「我的 PikPak」里粘贴磁力链接，或在播放页寻找下载源时点“改用 PikPak 离线下载”。文件下载到网盘的「流光离线下载」文件夹，服务器本身不跑 BT。会员的离线次数和速度更好。
-- **PikPak 分享链接**：直接粘贴也能列出文件，但没有转存的分享通常只能播放预览。完整播放：在 PikPak App 里把分享保存到网盘，再从「我的 PikPak」打开。
+- **PikPak 分享链接自动转存**：粘贴分享链接，选择视频后，服务器用你的账号把它转存到网盘的「流光转存」文件夹，再完整播放。已经转存过的文件（同名同大小）不会重复转存，以后也能在「我的 PikPak」里找到。转存会占用网盘空间，不需要的可以在 PikPak App 里删除。
 - 登录失败（例如 PikPak 要求验证）时，页面会显示原因；为避免触发风控，失败后两分钟内不会重复登录。
 - 查看日志：`docker compose logs --tail 30 openlist app`
 
@@ -176,7 +175,7 @@ npm start           # 生产模式启动
 - `GET|HEAD /api/media/torrent/:infoHash/:index`（BT 文件，支持 Range）
 - `GET /api/media/poster`
 - `GET /api/library`、`POST /api/library/progress`、`POST /api/library/favorite`、`DELETE /api/library/:id`、`DELETE /api/library/history`
-- `GET /api/pikpak/status`、`GET /api/pikpak/list?path=`、`POST /api/pikpak/offline`、`GET /api/pikpak/tasks`（我的 PikPak）；播放网盘文件用 `POST /api/media/resolve`，`url` 为 `pikpak:/路径`
+- `GET /api/pikpak/status`、`GET /api/pikpak/list?path=`（我的 PikPak）；播放网盘文件用 `POST /api/media/resolve`，`url` 为 `pikpak:/路径`
 - `GET|HEAD /internal/source`（仅供 media 服务使用，需要内部密钥）
 
 媒体与记录接口均要求有效访问会话。播放地址为短期签名地址，不是可任意指定目标的开放代理。

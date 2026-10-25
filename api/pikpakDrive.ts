@@ -1,7 +1,6 @@
-import type { PikPakEntry, PikPakStatus, PikPakTask } from "@contracts/types";
+import type { PikPakEntry, PikPakStatus } from "@contracts/types";
 import { baseName, streamFromUrl, type ResolvedStream } from "./media";
 import {
-  call,
   createStorage,
   deleteStorage,
   errorMessage,
@@ -12,12 +11,10 @@ import {
 import { RouteError } from "./routeUtils";
 
 // The user's own PikPak drive, mounted in OpenList with the account from
-// PIKPAK_USERNAME / PIKPAK_PASSWORD. Files here play in full (unlike share
-// links, which may only give a preview), and magnet links can be handed to
-// PikPak's offline download so this server never runs BitTorrent itself.
+// PIKPAK_USERNAME / PIKPAK_PASSWORD, for browsing and playing what is in it
+// (including shares saved into the 流光转存 folder).
 
 const DRIVE_MOUNT = "/pikpak";
-export const OFFLINE_FOLDER = "流光离线下载";
 const CHECK_INTERVAL_MS = 5 * 60_000;
 // After a failed login, wait before trying again: repeated logins can make
 // PikPak demand a verification or lock the account.
@@ -180,54 +177,4 @@ export async function resolveDriveFile(source: string): Promise<ResolvedStream> 
     // Download links expire and change; the file itself does not.
     key: `pikpak-drive:${path}`,
   });
-}
-
-const OFFLINE_URL = /^(magnet:\?|https?:\/\/|ed2k:\/\/)/i;
-
-/** Hands a magnet (or http/ed2k) link to PikPak's cloud download. */
-export async function addOfflineDownload(url: string): Promise<void> {
-  const link = url.trim();
-  if (!OFFLINE_URL.test(link) || link.length > 8192) {
-    throw new RouteError(400, "请粘贴磁力链接（magnet:）或下载地址。", "INVALID_OFFLINE_URL");
-  }
-  await withDrive("添加离线下载", () =>
-    call("/api/fs/add_offline_download", "POST", {
-      urls: [link],
-      path: `${DRIVE_MOUNT}/${OFFLINE_FOLDER}`,
-      tool: "PikPak",
-      delete_policy: "delete_never",
-    }),
-  );
-}
-
-type OpenListTask = {
-  id: string;
-  name: string;
-  status: string;
-  progress: number;
-  error: string;
-  start_time: string | null;
-};
-
-export async function offlineTasks(): Promise<PikPakTask[]> {
-  if (!credentials()) return [];
-  const [undone, done] = await Promise.all([
-    call<OpenListTask[] | null>("/api/task/offline_download/undone", "GET"),
-    call<OpenListTask[] | null>("/api/task/offline_download/done", "GET"),
-  ]);
-  const describe = (task: OpenListTask, finished: boolean): PikPakTask => ({
-    id: task.id,
-    // OpenList names tasks "download <url> to [<dir>](...)"; keep the link part.
-    name: (task.name.match(/download (.+?) to \[/)?.[1] || task.name).slice(0, 300),
-    progress: Number.isFinite(task.progress) ? Math.round(task.progress) : 0,
-    finished,
-    error: task.error || null,
-    startedAt: task.start_time ? Date.parse(task.start_time) || null : null,
-  });
-  return [
-    ...(undone || []).map((task) => describe(task, false)),
-    ...(done || []).map((task) => describe(task, true)),
-  ]
-    .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))
-    .slice(0, 20);
 }

@@ -79,20 +79,11 @@ export type PikPakStatus = {
 
 export type PikPakEntry = {
   name: string;
-  /** Path inside the drive, e.g. "/流光离线下载/movie.mp4". */
+  /** Path inside the drive, e.g. "/流光转存/movie.mp4". */
   path: string;
   size: number;
   isDir: boolean;
   modified: number | null;
-};
-
-export type PikPakTask = {
-  id: string;
-  name: string;
-  progress: number;
-  finished: boolean;
-  error: string | null;
-  startedAt: number | null;
 };
 
 export type AccessStatus = {

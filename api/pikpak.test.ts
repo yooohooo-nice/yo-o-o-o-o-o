@@ -78,6 +78,9 @@ function fakeOpenList(options: { failCreate?: string; expireTokenOnce?: boolean 
 beforeEach(() => {
   vi.stubEnv("OPENLIST_URL", OPENLIST);
   vi.stubEnv("OPENLIST_PASSWORD", "admin-secret");
+  // No account: the anonymous (preview) flow.
+  vi.stubEnv("PIKPAK_USERNAME", "");
+  vi.stubEnv("PIKPAK_PASSWORD", "");
 });
 afterEach(() => {
   vi.unstubAllEnvs();

@@ -1,16 +1,8 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { z } from "zod";
-import {
-  addOfflineDownload,
-  driveStatus,
-  listDrive,
-  offlineTasks,
-} from "../pikpakDrive";
+import { driveStatus, listDrive } from "../pikpakDrive";
 import { requireAccess } from "../requireAccess";
-import { RouteError, checkRateLimit, clientIp, routeErrorResponse } from "../routeUtils";
-
-const offlineSchema = z.object({ url: z.string().min(8).max(8192) });
+import { checkRateLimit, clientIp, routeErrorResponse } from "../routeUtils";
 
 export const pikpakRoutes = new Hono();
 
@@ -39,27 +31,6 @@ pikpakRoutes.get("/list", async (c) => {
     const path = (c.req.query("path") || "/").slice(0, 2048);
     const refresh = c.req.query("refresh") === "1";
     return c.json({ items: await listDrive(path, refresh) });
-  } catch (error) {
-    return routeErrorResponse(c, error);
-  }
-});
-
-pikpakRoutes.post("/offline", async (c) => {
-  try {
-    const body = offlineSchema.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) {
-      throw new RouteError(400, "请粘贴磁力链接或下载地址。", "INVALID_OFFLINE_URL");
-    }
-    await addOfflineDownload(body.data.url);
-    return c.json({ ok: true });
-  } catch (error) {
-    return routeErrorResponse(c, error);
-  }
-});
-
-pikpakRoutes.get("/tasks", async (c) => {
-  try {
-    return c.json({ tasks: await offlineTasks() });
   } catch (error) {
     return routeErrorResponse(c, error);
   }

@@ -36,16 +36,10 @@ function fakeOpenList(options: { loginError?: string } = {}) {
       case "/api/fs/list":
         return ok({ content: [
           { name: "电影.mkv", size: 2_000_000_000, is_dir: false, modified: "2026-10-25T10:00:00Z" },
-          { name: "流光离线下载", size: 0, is_dir: true, modified: "2026-10-25T09:00:00Z" },
+          { name: "流光转存", size: 0, is_dir: true, modified: "2026-10-25T09:00:00Z" },
         ] });
       case "/api/fs/get":
         return ok({ name: "a.mp4", raw_url: "https://dl.pikpak-cdn.example/a?sig=1" });
-      case "/api/fs/add_offline_download":
-        return ok({ tasks: [{ id: "x" }] });
-      case "/api/task/offline_download/undone":
-        return ok([{ id: "1", name: "download magnet:?xt=urn:btih:abc to [/pikpak/流光离线下载](/)", status: "", progress: 42.4, error: "", start_time: "2026-10-25T10:00:00Z" }]);
-      case "/api/task/offline_download/done":
-        return ok([{ id: "2", name: "download magnet:?xt=urn:btih:def to [/pikpak/流光离线下载](/)", status: "", progress: 100, error: "", start_time: "2026-10-25T08:00:00Z" }]);
     }
     return new Response("not found", { status: 404 });
   });
@@ -82,7 +76,7 @@ describe("My PikPak drive", () => {
     const drive = await load();
     const items = await drive.listDrive("/");
     expect(items.map((item) => [item.name, item.isDir, item.path])).toEqual([
-      ["流光离线下载", true, "/流光离线下载"],
+      ["流光转存", true, "/流光转存"],
       ["电影.mkv", false, "/电影.mkv"],
     ]);
     expect(JSON.parse(storages[0].addition)).toMatchObject({ username: "me@example.com", password: "pw1" });
@@ -90,9 +84,9 @@ describe("My PikPak drive", () => {
       mount_path: "/pikpak",
       driver: "PikPak",
     });
-    await drive.listDrive("/流光离线下载");
+    await drive.listDrive("/流光转存");
     expect(calls.filter((c) => c.path === "/api/admin/storage/create")).toHaveLength(1);
-    expect(calls.at(-1)?.body).toMatchObject({ path: "/pikpak/流光离线下载" });
+    expect(calls.at(-1)?.body).toMatchObject({ path: "/pikpak/流光转存" });
   });
 
   it("remounts when the password in .env changes", async () => {
@@ -129,26 +123,8 @@ describe("My PikPak drive", () => {
   it("plays a drive file from its download link", async () => {
     const { calls } = fakeOpenList();
     const drive = await load();
-    const played = await drive.resolveDriveFile("pikpak:/流光离线下载/a.mp4");
-    expect(played).toMatchObject({ site: "pikpak", kind: "file", title: "a", sourceUrl: "pikpak:/流光离线下载/a.mp4" });
-    expect(calls.find((c) => c.path === "/api/fs/get")?.body).toMatchObject({ path: "/pikpak/流光离线下载/a.mp4" });
-  });
-
-  it("sends magnets to PikPak offline download and lists tasks", async () => {
-    const { calls } = fakeOpenList();
-    const drive = await load();
-    await drive.addOfflineDownload("magnet:?xt=urn:btih:abc");
-    expect(calls.find((c) => c.path === "/api/fs/add_offline_download")?.body).toEqual({
-      urls: ["magnet:?xt=urn:btih:abc"],
-      path: "/pikpak/流光离线下载",
-      tool: "PikPak",
-      delete_policy: "delete_never",
-    });
-    await expect(drive.addOfflineDownload("hello")).rejects.toMatchObject({ code: "INVALID_OFFLINE_URL" });
-    const tasks = await drive.offlineTasks();
-    expect(tasks.map((t) => [t.name, t.progress, t.finished])).toEqual([
-      ["magnet:?xt=urn:btih:abc", 42, false],
-      ["magnet:?xt=urn:btih:def", 100, true],
-    ]);
+    const played = await drive.resolveDriveFile("pikpak:/流光转存/a.mp4");
+    expect(played).toMatchObject({ site: "pikpak", kind: "file", title: "a", sourceUrl: "pikpak:/流光转存/a.mp4" });
+    expect(calls.find((c) => c.path === "/api/fs/get")?.body).toMatchObject({ path: "/pikpak/流光转存/a.mp4" });
   });
 });

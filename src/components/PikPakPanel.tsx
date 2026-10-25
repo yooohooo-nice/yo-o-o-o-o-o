@@ -1,25 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import type { FormEvent } from "react";
 import {
   AlertCircle,
   ChevronLeft,
-  CloudDownload,
   FileVideo,
   Folder,
   LoaderCircle,
   RefreshCw,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import type { PikPakEntry, PikPakStatus, PikPakTask } from "@contracts/types";
+import type { PikPakEntry, PikPakStatus } from "@contracts/types";
 
 const VIDEO = /\.(mp4|m4v|mov|webm|mkv|avi|flv|ts|m2ts|mts|wmv|mpg|mpeg|rmvb|rm|3gp)$/i;
-const OFFLINE_FOLDER = "/流光离线下载";
 
 type PikPakPanelProps = {
   onPlay: (path: string) => void;
-  /** A magnet handed over from the main page to download offline. */
-  pendingOffline: string | null;
-  onOfflineConsumed: () => void;
 };
 
 function formatSize(bytes: number): string {
@@ -34,17 +28,12 @@ function parentOf(path: string): string {
   return `/${parts.join("/")}`;
 }
 
-export function PikPakPanel({ onPlay, pendingOffline, onOfflineConsumed }: PikPakPanelProps) {
+export function PikPakPanel({ onPlay }: PikPakPanelProps) {
   const [status, setStatus] = useState<PikPakStatus | null>(null);
   const [path, setPath] = useState("/");
   const [items, setItems] = useState<PikPakEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [tasks, setTasks] = useState<PikPakTask[]>([]);
-  const [offlineUrl, setOfflineUrl] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [notice, setNotice] = useState("");
-
   const load = useCallback(async (dir: string, refresh = false) => {
     setLoading(true);
     setError("");
@@ -61,14 +50,6 @@ export function PikPakPanel({ onPlay, pendingOffline, onOfflineConsumed }: PikPa
     }
   }, []);
 
-  const loadTasks = useCallback(async () => {
-    try {
-      setTasks((await apiFetch<{ tasks: PikPakTask[] }>("/api/pikpak/tasks")).tasks);
-    } catch {
-      // The task list is secondary to browsing.
-    }
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -78,7 +59,6 @@ export function PikPakPanel({ onPlay, pendingOffline, onOfflineConsumed }: PikPa
         setStatus(current);
         if (current.ready) {
           void load("/");
-          void loadTasks();
         }
       } catch (reason) {
         if (!cancelled) setStatus({ configured: true, ready: false, error: (reason as Error).message });
@@ -87,45 +67,7 @@ export function PikPakPanel({ onPlay, pendingOffline, onOfflineConsumed }: PikPa
     return () => {
       cancelled = true;
     };
-  }, [load, loadTasks]);
-
-  // Keep running downloads fresh while the page is open.
-  const running = tasks.some((task) => !task.finished);
-  useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => void loadTasks(), 5000);
-    return () => window.clearInterval(timer);
-  }, [running, loadTasks]);
-
-  const addOffline = useCallback(
-    async (url: string) => {
-      setAdding(true);
-      setNotice("");
-      setError("");
-      try {
-        await apiFetch("/api/pikpak/offline", { method: "POST", body: JSON.stringify({ url }) });
-        setOfflineUrl("");
-        setNotice(`已交给 PikPak 离线下载，完成后在「${OFFLINE_FOLDER.slice(1)}」文件夹里播放。`);
-        void loadTasks();
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "添加离线下载失败。");
-      } finally {
-        setAdding(false);
-      }
-    },
-    [loadTasks],
-  );
-
-  useEffect(() => {
-    if (!pendingOffline || !status?.ready) return;
-    onOfflineConsumed();
-    void addOffline(pendingOffline);
-  }, [pendingOffline, status, addOffline, onOfflineConsumed]);
-
-  function handleOffline(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (offlineUrl.trim()) void addOffline(offlineUrl.trim());
-  }
+  }, [load]);
 
   if (!status) {
     return (
@@ -154,41 +96,6 @@ export function PikPakPanel({ onPlay, pendingOffline, onOfflineConsumed }: PikPa
 
   return (
     <div className="pikpak-panel">
-      <form className="pikpak-offline" onSubmit={handleOffline}>
-        <CloudDownload size={19} aria-hidden="true" />
-        <input
-          type="text"
-          value={offlineUrl}
-          onChange={(event) => setOfflineUrl(event.target.value)}
-          placeholder="粘贴磁力链接，交给 PikPak 云端下载"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          disabled={adding}
-        />
-        <button className="secondary-button" type="submit" disabled={adding || !offlineUrl.trim()}>
-          {adding ? <LoaderCircle className="spin" size={16} /> : null}离线下载
-        </button>
-      </form>
-      {notice && <p className="pikpak-notice">{notice}</p>}
-
-      {tasks.length > 0 && (
-        <div className="pikpak-tasks">
-          {tasks.slice(0, 5).map((task) => (
-            <div className="pikpak-task" key={task.id}>
-              <span className="pikpak-task-name">{task.name}</span>
-              <span className={`pikpak-task-state ${task.error ? "is-error" : ""}`}>
-                {task.error
-                  ? `失败：${task.error}`
-                  : task.finished
-                    ? "已完成"
-                    : `下载中 ${task.progress}%`}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="pikpak-toolbar">
         <div className="pikpak-crumbs">
           <button type="button" className="text-button" onClick={() => void load("/")}>我的 PikPak</button>

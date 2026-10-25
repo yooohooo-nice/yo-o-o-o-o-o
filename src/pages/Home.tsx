@@ -10,7 +10,6 @@ import {
   Play,
   ShieldCheck,
   Star,
-  CloudDownload,
 } from "lucide-react";
 import { AccessGate } from "@/components/AccessGate";
 import { InstallHint } from "@/components/InstallHint";
@@ -32,7 +31,7 @@ const DEMO_STREAM =
   "https://test-streams.mux.dev/x36xhzz/url_2/193039199_mp4_h264_aac_ld_7.m3u8";
 const EMPTY_LIBRARY: LibraryResponse = { recent: [], favorites: [] };
 const SHARE_HINT =
-  "PikPak 分享没有转存时，通常只能播放预览。完整播放：在 PikPak App 里把分享保存到网盘，再从顶部「我的 PikPak」打开。";
+  "在服务器 .env 里填写 PikPak 账号后，分享会自动转存到网盘的「流光转存」文件夹再播放；没有账号时通常只能播放预览。";
 
 type AuthState = "loading" | "gate" | "ready" | "error";
 type View = "home" | "pikpak";
@@ -94,7 +93,6 @@ export default function Home() {
   const [library, setLibrary] = useState<LibraryResponse>(EMPTY_LIBRARY);
   const [loggingOut, setLoggingOut] = useState(false);
   const [view, setView] = useState<View>("home");
-  const [pendingOffline, setPendingOffline] = useState<string | null>(null);
   const requestRef = useRef(0);
   const playerRef = useRef<HTMLElement>(null);
   const sharedLinkRef = useRef(sharedLinkFromLocation());
@@ -252,16 +250,6 @@ export default function Home() {
     void resolveUrl(source);
   }
 
-  function sendToPikPak() {
-    // Stop polling the server-side BitTorrent search and let PikPak's cloud
-    // download it instead.
-    requestRef.current += 1;
-    setResolving(false);
-    setPendingOffline(url.trim());
-    setView("pikpak");
-    window.scrollTo({ top: 0 });
-  }
-
   function playItem(item: LibraryItem) {
     setUrl(item.url);
     void resolveUrl(item.url, item.fileIndex ?? undefined);
@@ -342,11 +330,7 @@ export default function Home() {
                 <h2 id="pikpak-heading">我的 PikPak</h2>
               </div>
             </div>
-            <PikPakPanel
-              onPlay={playFromDrive}
-              pendingOffline={pendingOffline}
-              onOfflineConsumed={() => setPendingOffline(null)}
-            />
+            <PikPakPanel onPlay={playFromDrive} />
           </section>
         ) : (
         <>
@@ -465,11 +449,6 @@ export default function Home() {
                   <div className="resolve-bars" aria-hidden="true"><i /><i /><i /><i /></div>
                   <p>{searchStatus || "正在解析"}</p>
                   <span>磁力链接需要先找到下载源，冷门资源可能要等一两分钟</span>
-                  {/^magnet:/i.test(url.trim()) && (
-                    <button className="secondary-button" type="button" onClick={sendToPikPak}>
-                      <CloudDownload size={17} />改用 PikPak 离线下载
-                    </button>
-                  )}
                 </>
               ) : (
                 <>
