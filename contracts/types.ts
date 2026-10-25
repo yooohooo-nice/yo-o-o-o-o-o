@@ -1,6 +1,6 @@
 export * from "./errors";
 
-export type MediaSite = "jable" | "missav" | "direct" | "torrent";
+export type MediaSite = "jable" | "missav" | "direct" | "torrent" | "pikpak";
 /** hls: an HLS playlist (incl. ones remuxed on the server); file: a single progressive file. */
 export type MediaKind = "hls" | "file";
 
@@ -38,6 +38,8 @@ export type TorrentFile = {
 /** A torrent with several videos: the user picks one, then resolves again with fileIndex. */
 export type TorrentChoice = {
   needsFileChoice: true;
+  /** Where the files come from; a torrent when absent. */
+  source?: "torrent" | "pikpak";
   title: string;
   sourceUrl: string;
   files: TorrentFile[];
